@@ -4,8 +4,9 @@ import time
 import os
 
 # 1. 设定模型文件的路径
-# 根据你的目录结构：./assets/universal_robots_ur3e/ur3e.xml
-xml_path = os.path.join("assets", "universal_robots_ur3e", "ur3e.xml")
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(current_dir)
+xml_path = os.path.join(project_dir, "assets", "universal_robots_ur3e", "ur3e.xml")
 
 print(f"正在尝试加载模型: {xml_path}")
 

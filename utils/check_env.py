@@ -1,3 +1,8 @@
+import sys
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(current_dir)
+sys.path.insert(0, os.path.join(project_dir, "archive"))
 from ur3e_env import UR3eEnv
 import time
 import numpy as np
@@ -19,16 +24,16 @@ try:
         # 3. 随机生成一个动作 (AI 的大脑在这里工作)
         # action_space.sample() 会自动生成一个符合范围的随机动作
         action = env.action_space.sample()
-        
+
         # 4. 环境推进一步
         obs, reward, terminated, truncated, info = env.step(action)
-        
+
         # 打印一下数据看看是不是活的
         if i % 10 == 0:
             # 观测向量的第 12,13,14 位是加速度
-            accel_z = obs[14] 
+            accel_z = obs[14]
             print(f"Step {i} | 奖励: {reward} | Z轴加速度: {accel_z:.2f}")
-            
+
         time.sleep(0.05) # 稍微慢一点，让人眼能跟上
 
 except KeyboardInterrupt:
