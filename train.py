@@ -16,7 +16,7 @@ print("开始训练... (你可以去喝杯咖啡，这需要几分钟)")
 # 3. 开始训练
 # total_timesteps 是训练的总步数。
 # 对于简单的 Reach 任务，50,000 步通常能看到初步效果
-model.learn(total_timesteps=50000)
+model.learn(total_timesteps=100000)
 
 # 4. 保存模型
 models_dir = "models"
