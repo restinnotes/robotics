@@ -1,0 +1,10 @@
+=== Validation Results ===
+Mean Absolute Error (rad):
+  Pan: 0.1823
+  Lift: 0.0174
+  Elbow: 0.0112
+  Wrist1: 0.1183
+  Wrist2: 0.0000
+  Wrist3: 0.0000
+
+Total Mean Error: 0.0549

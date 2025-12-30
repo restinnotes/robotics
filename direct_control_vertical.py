@@ -68,6 +68,12 @@ print("\n启动竖直版 UR3e 摆臂模仿...")
 print("(按 Esc 或关闭窗口退出)")
 
 with mujoco.viewer.launch_passive(model, data) as viewer:
+    # 设置相机位置：看向肩部关节
+    viewer.cam.lookat[:] = [0, 0, 0.7]   # 肩部位置
+    viewer.cam.distance = 1.2            # 相机距离
+    viewer.cam.elevation = 0             # 正面平视
+    viewer.cam.azimuth = 90              # 侧面
+
     while viewer.is_running():
         t = data.time
 
