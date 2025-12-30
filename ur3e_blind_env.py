@@ -65,6 +65,7 @@ class UR3eBlindIMUEnv(gym.Env):
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(6,), dtype=np.float32)
 
         # 观测空间
+        # qpos(6) + qvel(6) + imu_history(stack*8)
         obs_dim = 6 + 6 + self.imu_stack_size * self.imu_dim_per_frame
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
 
@@ -168,6 +169,7 @@ class UR3eBlindIMUEnv(gym.Env):
             self._render_frame()
 
         return self._get_obs(), {}
+
 
     def step(self, action):
         # 1. 平滑动作
