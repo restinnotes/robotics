@@ -70,16 +70,33 @@ python scripts/trajectory_analysis.py --n_episodes 10 --calib_deg 30
 
 ---
 
-## 📱 手机遥操作 Demo (phyphox)
+## 📱 统一遥操作入口 (Unified Control)
 
-利用手机作为 3D 操纵杆实时驱动机械臂：
+**新版控制脚本** `scripts/robot_control.py` 支持 WiFi 和 BLE 两种模式，且均可连接仿真或真机。
 
-1. **手机端**：安装 **phyphox** App -> 选择 **"工具" -> "斜面" (Inclination)** -> 点右上角三个点 -> **"允许远程访问"** -> 点击播放按钮。
-2. **电脑端**：
+### 1. WiFi 模式 (推荐 Phone)
+配合 **phyphox** App 使用 (需开启 "斜面" -> "允许远程访问")：
 ```bash
-python scripts/phone_control_phyphox.py --url http://手机显示的IP:8080
+# 控制仿真
+python scripts/robot_control.py --source wifi --url http://192.168.1.31:8080 --target sim
+
+# 控制真机 (需配置 IP)
+python scripts/robot_control.py --source wifi --url http://192.168.1.31:8080 --target real --robot_ip 192.168.1.100
 ```
-3. **操作**：按 Enter 校准，随后倾斜手机即可控制机械臂。
+
+### 2. BLE 模式 (推荐 BHI3xx 板子)
+配合 Bosch BHI360/260 传感器板子使用：
+
+Step 1: 扫描设备地址
+```bash
+python scripts/ble_scan.py
+# 记下板子的地址，例如 AA:BB:CC:DD:EE:FF
+```
+
+Step 2: 启动控制
+```bash
+python scripts/robot_control.py --source ble --address AA:BB:CC:DD:EE:FF --target sim
+```
 
 ---
 
@@ -99,9 +116,9 @@ python scripts/verification/benchmark_arena.py --noise_level moderate
 python scripts/eval_multi_angle.py --switch_interval 5
 ```
 
----
+### 3. IMU 解算器验证
+验证数学解算器的精度
 
-## 🛠️ 核心开发工具
-- **噪声注入**: `utils/noise_injector.py` (支持高斯、Bias、漂移)
-- **IMU 解算**: `utils/imu_solver.py` (纯数学解算基准)
-- **运动回放**: `scripts/verification/trajectory_player.py` (支持多角度切换)
+```bash
+python scripts/verification/test_imu_drive.py
+```
