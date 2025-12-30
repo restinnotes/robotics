@@ -62,14 +62,33 @@ class TrajectoryPlayer:
         start_frame = self.map_to_ur3e(0)
         print(f"  Frame 0 Target: {start_frame}")
 
+        # 相机角度配置
+        camera_angles = [
+            {"name": "正面", "azimuth": 90, "elevation": 0, "distance": 1.2},
+            {"name": "侧面", "azimuth": 0, "elevation": 0, "distance": 1.2},
+            {"name": "俯视", "azimuth": 90, "elevation": -45, "distance": 1.5},
+        ]
+        cam_switch_interval = 250 # 5 seconds at 50Hz (approx, simulation time based)
+
         with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-            # 设置相机: 看向肩部关节 (base 在 z=1.0, 往下一点)
-            viewer.cam.lookat[:] = [0, 0, 0.7]  # 肩部大约在这里
+            # 初始相机设置
+            viewer.cam.lookat[:] = [0, 0, 0.7]
             viewer.cam.distance = 1.2
-            viewer.cam.elevation = 0            # 正面平视
-            viewer.cam.azimuth = 90             # 侧面
+            viewer.cam.elevation = 0
+            viewer.cam.azimuth = 90
+
+            step_count = 0
 
             while viewer.is_running():
+                # 自动切换相机
+                if step_count % cam_switch_interval == 0:
+                    idx = (step_count // cam_switch_interval) % 3
+                    cam = camera_angles[idx]
+                    viewer.cam.azimuth = cam["azimuth"]
+                    viewer.cam.elevation = cam["elevation"]
+                    viewer.cam.distance = cam["distance"]
+                    print(f"Switching to [{cam['name']}] view")
+
                 # 用仿真时间来索引帧 (与 direct_control_vertical 一致)
                 t = self.data.time
                 frame_idx = int((t * self.frequency) % self.n_frames)
@@ -86,13 +105,15 @@ class TrajectoryPlayer:
 
                 # 与 direct_control_vertical 一致的帧率
                 time.sleep(0.002)
+                step_count += 1
 
 
 def main():
     # 路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
-    traj_path = os.path.join(current_dir, "data", "walk_arm_direct.npz")
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    model_path = os.path.join(project_root, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
+    traj_path = os.path.join(project_root, "data", "walk_arm_direct.npz")
 
     # 创建播放器并运行
     player = TrajectoryPlayer(model_path, traj_path)

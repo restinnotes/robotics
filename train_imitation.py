@@ -53,9 +53,9 @@ def evaluate(args):
     obs, _ = env.reset()
     total_reward = 0
 
-    print("运行评估... (按 ESC 退出窗口)")
+    print(f"运行评估 (步数: {args.eval_steps})... (按 ESC 退出窗口)")
 
-    for step in range(2000):
+    for step in range(args.eval_steps):
         action, _ = agent.get_action(obs, rng=None)
 
         obs, reward, terminated, truncated, info = env.step(action)
@@ -78,6 +78,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--total_timesteps", type=int, default=100_000, help="训练总步数")
+    parser.add_argument("--eval_steps", type=int, default=1000, help="评估步数")
     parser.add_argument("--model_dir", type=str, default="./models", help="模型保存目录")
 
     args = parser.parse_args()

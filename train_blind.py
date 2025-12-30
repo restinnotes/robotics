@@ -19,8 +19,12 @@ def train(args):
     # 创建输出目录
     os.makedirs(args.model_dir, exist_ok=True)
 
-    # 创建环境
-    env = UR3eBlindIMUEnv(render_mode=None, imu_stack_size=args.imu_stack)
+    # 创建环境 (训练时启用校准随机化)
+    env = UR3eBlindIMUEnv(
+        render_mode=None,
+        imu_stack_size=args.imu_stack,
+        calib_randomize_deg=args.calib_deg  # 训练时启用
+    )
 
     # 创建并运行 PPO Agent
     agent = PPOAgent(env, learning_rate=args.lr)
@@ -55,9 +59,9 @@ def evaluate(args):
     obs, _ = env.reset()
     total_reward = 0
 
-    print("运行评估... (按 ESC 退出窗口)")
+    print(f"运行评估 (步数: {args.eval_steps})... (按 ESC 退出窗口)")
 
-    for step in range(2000):
+    for step in range(args.eval_steps):
         action, _ = agent.get_action(obs, rng=None)
 
         obs, reward, terminated, truncated, info = env.step(action)
@@ -80,9 +84,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--total_timesteps", type=int, default=200_000, help="训练总步数")
+    parser.add_argument("--eval_steps", type=int, default=1000, help="评估步数")
     parser.add_argument("--model_dir", type=str, default="./models", help="模型保存目录")
     parser.add_argument("--imu_stack", type=int, default=10, help="IMU 历史堆叠帧数")
     parser.add_argument("--lr", type=float, default=3e-4, help="学习率")
+    parser.add_argument("--calib_deg", type=float, default=15.0, help="校准随机化角度 (度)")
 
     args = parser.parse_args()
 

@@ -26,7 +26,7 @@ class UR3eBlindIMUEnv(gym.Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 50}
 
-    def __init__(self, render_mode=None, imu_stack_size=10):
+    def __init__(self, render_mode=None, imu_stack_size=10, calib_randomize_deg=0.0):
         super().__init__()
 
         # 路径
@@ -55,6 +55,10 @@ class UR3eBlindIMUEnv(gym.Env):
 
         # IMU 解算器
         self.imu_solver = IMUSolver()
+
+        # 校准随机化 (模拟用户戴歪 IMU)
+        self.calib_randomize_deg = calib_randomize_deg
+        self.calib_offset_rot = None  # 每个Episode随机生成
 
         # IMU 历史堆叠参数
         self.imu_stack_size = imu_stack_size
@@ -107,6 +111,12 @@ class UR3eBlindIMUEnv(gym.Env):
         mat_fore = self.user_data.site_xmat[self.site_fore_id].reshape(3, 3)
         q_upper = R.from_matrix(mat_upper).as_quat().astype(np.float32)
         q_fore = R.from_matrix(mat_fore).as_quat().astype(np.float32)
+
+        # 施加校准偏置 (整个Episode保持一致)
+        if self.calib_offset_rot is not None:
+            q_upper = (R.from_quat(q_upper) * self.calib_offset_rot).as_quat().astype(np.float32)
+            q_fore = (R.from_quat(q_fore) * self.calib_offset_rot).as_quat().astype(np.float32)
+
         return q_upper, q_fore
 
     def _update_imu_history(self, q_upper, q_fore):
@@ -154,7 +164,18 @@ class UR3eBlindIMUEnv(gym.Env):
 
         mujoco.mj_forward(self.model, self.data)
 
+        # === 校准随机化: 模拟用户戴歪 IMU ===
+        if self.calib_randomize_deg > 0:
+            # 生成随机旋转偏置 (±calib_randomize_deg 度)
+            calib_offset_euler = self.np_random.uniform(
+                -self.calib_randomize_deg, self.calib_randomize_deg, size=3
+            )
+            self.calib_offset_rot = R.from_euler('xyz', calib_offset_euler, degrees=True)
+        else:
+            self.calib_offset_rot = None
+
         # 校准 IMU 解算器 (只在开始时做一次)
+        # 注意：_get_virtual_user_imu 会自动施加 calib_offset_rot
         q_upper, q_fore = self._get_virtual_user_imu(target)
         self.imu_solver.calibrate(q_upper, q_fore, offset_joints=target)
 

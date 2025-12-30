@@ -8,19 +8,24 @@ IMU 驱动仿真验证脚本 - Bridge Phase 1 & 2
 4. 驱动 MuJoCo 仿真 (Visual)
 """
 
+import os
+import sys
+# Add project root to sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 import time
 import mujoco
 import mujoco.viewer
 import numpy as np
-import os
 from utils.imu_solver import IMUSolver
 from scipy.spatial.transform import Rotation as R
 
 def main():
     # 1. 路径设置
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
-    traj_path = os.path.join(current_dir, "data", "walk_arm_direct.npz")
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    model_path = os.path.join(project_root, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
+    traj_path = os.path.join(project_root, "data", "walk_arm_direct.npz")
 
     # 2. 加载模型
     model = mujoco.MjModel.from_xml_path(model_path)
@@ -54,9 +59,26 @@ def main():
 
         # 循环播放
         step = 0
+        camera_angles = [
+            {"name": "正面", "azimuth": 90, "elevation": 0, "distance": 1.2},
+            {"name": "侧面", "azimuth": 0, "elevation": 0, "distance": 1.2},
+            {"name": "俯视", "azimuth": 90, "elevation": -45, "distance": 1.5},
+        ]
+        cam_switch_interval = 250 # 5 seconds at 50Hz
+        current_cam_idx = 0
+
         while viewer.is_running():
             # 循环索引
             frame_idx = step % n_frames
+
+            # 切换镜头
+            if step % cam_switch_interval == 0:
+                idx = (step // cam_switch_interval) % 3
+                cam = camera_angles[idx]
+                viewer.cam.azimuth = cam["azimuth"]
+                viewer.cam.elevation = cam["elevation"]
+                viewer.cam.distance = cam["distance"]
+                print(f"Switching to [{cam['name']}] view")
 
             # --- 步骤 A: 生成虚拟 IMU 数据 (Ground Truth) ---
             # 1. 把机器人摆到 GT 位置 (仅用于生成数据，不用来显示)
