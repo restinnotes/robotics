@@ -12,8 +12,13 @@ import mujoco
 import numpy as np
 import cv2
 import os
+import sys
 import argparse
 from scipy.spatial.transform import Rotation as R
+
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 from utils.imu_solver import IMUSolver
 from utils.noise_injector import NoiseInjector, get_injector_by_preset
@@ -24,8 +29,8 @@ from ur3e_blind_env import UR3eBlindIMUEnv
 def main(args):
     # --- 路径设置 ---
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
-    traj_path = os.path.join(current_dir, "data", "walk_arm_direct.npz")
+    model_path = os.path.join(project_root, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
+    traj_path = os.path.join(project_root, "data", "walk_arm_direct.npz")
 
     # --- 加载数据 ---
     traj = np.load(traj_path, allow_pickle=True)
@@ -64,7 +69,7 @@ def main(args):
     temp_env = UR3eBlindIMUEnv(render_mode=None)
     agent = PPOAgent(temp_env)
 
-    model_file = os.path.join(args.model_dir, "blind_ppo_params.msgpack")
+    model_file = os.path.join(project_root, "models", "blind_ppo_params.msgpack")
     if os.path.exists(model_file):
         agent.load(model_file)
         print(f"Loaded RL model from {model_file}")
@@ -134,9 +139,11 @@ def main(args):
             # 获取动作
             action, _ = agent.get_action(obs, rng=None)
 
-            # 残差控制 (与 ur3e_blind_env 一致)
+            # 残差控制: 使用 imu_solver 输出 + RL 修正 (不作弊!)
+            # 先用 solver 解算，然后加 RL 修正
+            solver_output_rl = solver.solve(q_upper_noisy, q_fore_noisy)
             scaled_action = action * 0.1
-            data_rl.ctrl[:6] = target_gt + scaled_action
+            data_rl.ctrl[:6] = solver_output_rl + scaled_action
 
             for _ in range(10):
                 mujoco.mj_step(model_rl, data_rl)

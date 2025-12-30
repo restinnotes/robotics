@@ -12,6 +12,12 @@ import mujoco
 import numpy as np
 import cv2
 import os
+import sys
+
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
+
 from utils.imu_solver import IMUSolver
 from scipy.spatial.transform import Rotation as R
 
@@ -20,12 +26,12 @@ def main():
     width, height = 640, 480
     output_fps = 50
     duration_frames = 500 # 录制 10 秒
-    video_path = "comparison_solver.mp4"
+    video_path = os.path.join(project_root, "media", "imu_solver_vs_gt.mp4")
 
     # 路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
-    traj_path = os.path.join(current_dir, "data", "walk_arm_direct.npz")
+    model_path = os.path.join(project_root, "assets", "universal_robots_ur3e", "ur3e_vertical.xml")
+    traj_path = os.path.join(project_root, "data", "walk_arm_direct.npz")
 
     # --- 加载数据 ---
     traj = np.load(traj_path, allow_pickle=True)
