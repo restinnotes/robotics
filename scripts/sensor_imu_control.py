@@ -45,7 +45,7 @@ def main():
     # 注意：这里使用 BHy2CLIReceiver 而不是 BHy2CLIAccelReceiver
     receiver = BHy2CLIReceiver(sensor_id=37, sample_rate=args.rate)
 
-    if not receiver.connect():
+    if not receiver.connect(perform_gyro_foc=True):
         print("连接失败!")
         return
 
