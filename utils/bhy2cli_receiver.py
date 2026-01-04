@@ -145,20 +145,26 @@ class BHy2CLIReceiver(IMUDataSource):
     def connect(self) -> bool:
         """
         启动子进程并开始接收数据
+        流程: 1) 启动固件(如需要) 2) 启动streaming 3) 通过stdin注入校准
         """
         if self._running:
             return True
 
-        # 尝试连接
+        # 先尝试直接启动 streaming (如果固件已运行)
         success = self._start_process()
 
-        # 如果是因为传感器没固件失败，尝试加载固件后再试一次
         if not success:
+            # 如果失败，尝试加载固件后再试
             print("连接初次尝试失败，尝试修复固件...")
             if self._boot_firmware():
                 success = self._start_process()
 
+        if not success:
+            print("连接失败")
+            return False
+
         return success
+
 
     def _start_process(self) -> bool:
         """启动 bhy2cli 进程"""
@@ -170,6 +176,7 @@ class BHy2CLIReceiver(IMUDataSource):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,  # 添加 stdin 以便发送命令
                 text=True,
                 bufsize=1,
                 cwd=os.path.dirname(self.exe_path)
@@ -191,6 +198,10 @@ class BHy2CLIReceiver(IMUDataSource):
                 if self._data_count > 5:
                     self._connected = True
                     print(f"数据接收正常 (已记录 {self._data_count} 帧)")
+
+                    # 在 streaming 运行后，通过 stdin 注入校准命令
+                    self._inject_calibration_via_stdin()
+
                     return True
                 time.sleep(0.1)
 
@@ -201,6 +212,30 @@ class BHy2CLIReceiver(IMUDataSource):
             print(f"进程启动失败: {e}")
             self._running = False
             return False
+
+    def _inject_calibration_via_stdin(self):
+        """
+        在 streaming 进程运行时通过 stdin 执行 FOC 校准
+        这会直接在传感器上校准陀螺仪，消除漂移
+        """
+        print(">>> [Live] 正在执行陀螺仪校准 (请保持静止)...")
+        print(">>> 这需要约 2 秒，请勿移动传感器...")
+
+        try:
+            # 发送 foc 3 命令 (gyroscope FOC)
+            # 注意: foc 命令格式是 "foc <sensor_id>" 其中 1=accel, 3=gyro
+            self.process.stdin.write("foc 3\n")
+            self.process.stdin.flush()
+            time.sleep(2.0)  # 等待 FOC 完成
+
+            # 也执行加速度计 FOC
+            self.process.stdin.write("foc 1\n")
+            self.process.stdin.flush()
+            time.sleep(1.0)
+
+            print(">>> FOC 校准命令已执行")
+        except Exception as e:
+            print(f">>> FOC 命令发送失败: {e}")
 
     def disconnect(self):
         """停止子进程"""
@@ -381,6 +416,74 @@ class BHy2CLIReceiver(IMUDataSource):
         quat = self._raw_quat.as_quat()  # [x, y, z, w]
         return tuple(quat)
 
+    def save_calibration_profile(self, folder: str = None):
+        """
+        保存传感器校准数据到文件
+        (0x201=Acceleromete, 0x203=Gyroscope)
+        """
+        # 默认保存到 executable 同级目录下的 calibration 文件夹
+        if folder is None:
+            folder = os.path.join(os.path.dirname(self.exe_path), "calibration")
+
+        if not os.path.exists(folder):
+            try:
+                os.makedirs(folder)
+            except:
+                pass
+
+        # 注意: 文件名与之前的 CLI 操作保持一致 (acc.bin, gyro.bin)
+        params = {
+            "acc": ("0x201", os.path.join(folder, "acc.bin")),
+            "gyro": ("0x203", os.path.join(folder, "gyro.bin"))
+        }
+
+        print(f">>> [Auto] 正在保存校准数据到 {folder}...")
+        for name, (pid, path) in params.items():
+            cmd = [self.exe_path, "getbsxparam", pid, os.path.abspath(path)]
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(self.exe_path))
+                if os.path.exists(path):
+                    print(f"    {name} 保存成功: {path}")
+                else:
+                    print(f"    {name} 保存失败")
+            except Exception as e:
+                print(f"    {name} 保存出错: {e}")
+
+    def load_calibration_profile(self, folder: str = None):
+        """
+        从文件加载传感器校准数据
+        (在 connect() 后自动调用)
+        """
+        # 默认从 executable 同级目录下的 calibration 文件夹加载
+        if folder is None:
+            folder = os.path.join(os.path.dirname(self.exe_path), "calibration")
+
+        params = {
+            "acc": ("0x201", os.path.join(folder, "acc.bin")),
+            "gyro": ("0x203", os.path.join(folder, "gyro.bin"))
+        }
+
+        print(f">>> [Auto] 正在验证校准数据 (路径: {folder})...")
+        loaded_count = 0
+        for name, (pid, path) in params.items():
+            if not os.path.exists(path):
+                print(f"    {name} 文件不存在: {path}")
+                continue
+
+            cmd = [self.exe_path, "setbsxparam", pid, os.path.abspath(path)]
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(self.exe_path))
+                if "error" not in res.stdout.lower():
+                    print(f"    {name} 加载成功")
+                    loaded_count += 1
+                else:
+                    print(f"    {name} 加载失败: {res.stdout.strip()}")
+            except Exception as e:
+                print(f"    {name} 加载出错: {e}")
+
+        if loaded_count > 0:
+            print(f">>> 成功恢复 {loaded_count} 个校准配置文件")
+
 
 # 测试入口
 if __name__ == "__main__":
@@ -398,6 +501,8 @@ if __name__ == "__main__":
     receiver = BHy2CLIReceiver(sensor_id=args.sensor_id, sample_rate=args.rate)
 
     if receiver.connect():
+        # receiver.save_calibration_profile() # 如果需要保存当前校准
+
         print("\n等待数据稳定后按 Enter 校准...")
         input()
         receiver.calibrate()
