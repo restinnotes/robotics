@@ -239,6 +239,52 @@ class BHy2CLIAccelReceiver(IMUDataSource):
 
         print(f">>> 校准完成! 零点: Roll={self._calib_roll:.1f}°, Pitch={self._calib_pitch:.1f}°")
 
+    def save_calibration_profile(self, folder: str = "calibration"):
+        """保存传感器校准数据到文件"""
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+        # 0x201: Accelerometer, 0x203: Gyroscope
+        params = {
+            "acc": ("0x201", os.path.join(folder, "acc_calib.bin")),
+            "gyro": ("0x203", os.path.join(folder, "gyro_calib.bin"))
+        }
+
+        print(">>> 正在保存校准数据...")
+        for name, (pid, path) in params.items():
+            cmd = [self.exe_path, "getbsxparam", pid, os.path.abspath(path)]
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(self.exe_path))
+                if os.path.exists(path):
+                    print(f"    {name} 保存成功: {path}")
+                else:
+                    print(f"    {name} 保存失败")
+            except Exception as e:
+                print(f"    {name} 保存出错: {e}")
+
+    def load_calibration_profile(self, folder: str = "calibration"):
+        """从文件加载传感器校准数据"""
+        params = {
+            "acc": ("0x201", os.path.join(folder, "acc_calib.bin")),
+            "gyro": ("0x203", os.path.join(folder, "gyro_calib.bin"))
+        }
+
+        print(">>> 正在加载校准数据...")
+        for name, (pid, path) in params.items():
+            if not os.path.exists(path):
+                print(f"    {name} 文件不存在，跳过")
+                continue
+
+            cmd = [self.exe_path, "setbsxparam", pid, os.path.abspath(path)]
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(self.exe_path))
+                if "error" not in res.stdout.lower():
+                    print(f"    {name} 加载成功")
+                else:
+                    print(f"    {name} 加载失败: {res.stdout.strip()}")
+            except Exception as e:
+                print(f"    {name} 加载出错: {e}")
+
     def is_connected(self) -> bool:
         return self._connected and self._running
 
