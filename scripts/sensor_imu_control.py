@@ -40,13 +40,13 @@ def main():
         os.path.join("assets", "universal_robots_ur3e", "ur3e_vertical.xml"),
         os.path.join("assets", "universal_robots_ur3e", "ur3e.xml"),
     ]
-    
+
     model_path = None
     for path in possible_paths:
         if os.path.exists(path):
             model_path = path
             break
-    
+
     if not model_path:
         print(f"找不到模型文件，尝试了以下路径:")
         for path in possible_paths:
@@ -72,32 +72,12 @@ def main():
     print("="*60)
     print("注意: 陀螺仪校准 (foc 3) 已在启动时自动执行")
     print("="*60)
-    
-    # 检查是否有 BSX 校准 bin 文件
-    calibration_folder = "calibration"
-    acc_bin = os.path.join(calibration_folder, "acc_calib.bin")
-    gyro_bin = os.path.join(calibration_folder, "gyro_calib.bin")
-    
-    has_calibration = os.path.exists(acc_bin) and os.path.exists(gyro_bin)
-    
-    if not has_calibration:
-        print("\n⚠️  警告: 未找到 BSX 校准 bin 文件！")
-        print("传感器可能无法正确理解重力方向。")
-        print("\n请先运行六面校准工具生成 bin 文件：")
-        print("  python3 utils/perform_six_face_calibration.py")
-        print("\n或者继续使用（可能不准确）...")
-        choice = input("是否继续？(y/n，默认y): ").strip().lower()
-        if choice != 'y' and choice != '':
-            receiver.disconnect()
-            return
-    else:
-        print(f"\n✅ 找到 BSX 校准文件，已自动加载")
-    
+
     # 零点校准（设置初始姿态为零点）
     print("\n请将传感器保持在初始位置（你希望作为零点的位置）")
     print("按 Enter 进行零点校准...")
     input()
-    receiver.calibrate(save_to_file=False)  # 不需要保存文件，BSX 校准已从 bin 文件加载
+    receiver.calibrate()
     print("开始控制...")
 
     # 初始位置
@@ -113,7 +93,7 @@ def main():
         print("无图形界面模式运行中...")
         print("按 Ctrl+C 退出")
         print("="*60)
-        
+
         try:
             while True:
                 # 获取相对旋转 (Rotation 对象)
