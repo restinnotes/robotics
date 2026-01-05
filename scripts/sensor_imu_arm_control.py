@@ -207,6 +207,15 @@ class ArmImuController:
             self.data.qpos[0] = self.target_pan
             self.data.qpos[1] = self.target_lift  # 移除限制，允许全球面运动
 
+            # 锁定小臂和手腕（防止受重力/惯性摆动）
+            # Initial pose: [0, -1.57, -1.57, -1.57, -1.57, 0]
+            # 关节2 (Elbow), 3 (Wrist 1), 4 (Wrist 2) 固定在 -1.57 (-90度)
+            # 关节5 (Wrist 3) 固定在 0
+            self.data.qpos[2] = -1.57
+            self.data.qpos[3] = -1.57
+            self.data.qpos[4] = -1.57
+            self.data.qpos[5] = 0.0
+
             # 用于 UI 显示
             yaw = chosen_p
             pitch = chosen_l
