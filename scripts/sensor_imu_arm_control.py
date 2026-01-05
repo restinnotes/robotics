@@ -118,22 +118,48 @@ class ArmImuController:
         yaw, pitch, roll = 0, 0, 0
 
         if orientation:
-            # Simple Euler angle mapping (like human arm)
-            euler = orientation.as_euler('zyx', degrees=False)
-            yaw, pitch, roll = euler
+            # --- Full Sphere Smooth Control ---
+            # 1. Extract pointing direction from quaternion (avoids Euler gimbal lock)
+            forward = orientation.apply([1, 0, 0])  # Sensor X-axis = pointing direction
 
-            # Direct mapping with scale
-            self.target_pan = yaw * self.scale
+            # 2. Convert to spherical coordinates
+            # Pan (azimuth): rotation around vertical axis
+            raw_pan = np.arctan2(forward[1], forward[0])
+            # Lift (elevation): angle from horizontal plane
+            raw_lift = np.arcsin(np.clip(forward[2], -1.0, 1.0))
 
-            # Lift: base is -1.57 (down), add pitch
-            # Clamp to human-like range: 0 (horizontal) to -3.14 (pointing back)
-            raw_lift = -1.57 + pitch * self.scale
-            self.target_lift = np.clip(raw_lift, -3.14, 0.0)
+            # 3. Apply scale
+            scaled_pan = raw_pan * self.scale
+            scaled_lift = raw_lift * self.scale
 
-            # Direct control (no accumulation needed with Euler angles)
-            # target_pan and target_lift are already set above
+            # 4. EMA (Exponential Moving Average) smoothing for continuity
+            # This prevents sudden jumps, especially when Pan wraps around ±π
+            if not hasattr(self, '_smooth_pan'):
+                self._smooth_pan = scaled_pan
+                self._smooth_lift = scaled_lift
 
-            # 3. Apply Control - Direct assignment (safe with clamped values)
+            # Handle Pan wrap-around: if delta > π, it's a wrap
+            delta_pan = scaled_pan - self._smooth_pan
+            if delta_pan > np.pi:
+                delta_pan -= 2 * np.pi
+            elif delta_pan < -np.pi:
+                delta_pan += 2 * np.pi
+
+            # EMA filter (alpha controls smoothness: lower = smoother)
+            ALPHA = 0.3  # 0.3 = fairly responsive, 0.1 = very smooth
+            self._smooth_pan += ALPHA * delta_pan
+            self._smooth_lift += ALPHA * (scaled_lift - self._smooth_lift)
+
+            # Normalize Pan to [-π, π]
+            if self._smooth_pan > np.pi:
+                self._smooth_pan -= 2 * np.pi
+            elif self._smooth_pan < -np.pi:
+                self._smooth_pan += 2 * np.pi
+
+            # 5. Apply to robot
+            self.target_pan = self._smooth_pan
+            self.target_lift = self._smooth_lift  # No clamping - full sphere
+
             self.data.qpos[0] = self.target_pan
             self.data.qpos[1] = self.target_lift
 
@@ -143,11 +169,9 @@ class ArmImuController:
             self.data.qpos[4] = -1.57
             self.data.qpos[5] = 0.0
 
-            # Reset velocities to prevent accumulated momentum
-            # self.data.qvel[:] = 0.0  # Removed to restore responsiveness
-
-            # For UI display - use the actual yaw/pitch from Euler angles
-            # (yaw and pitch are already set from euler above, no need to reassign)
+            # For UI display
+            yaw = raw_pan
+            pitch = raw_lift
 
             # 4. Record if enabled
             if self.recorder and self.recorder.is_recording:
