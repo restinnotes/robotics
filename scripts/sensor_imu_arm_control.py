@@ -162,6 +162,34 @@ class ArmImuController:
             delta_pan = chosen_p - self._last_raw_pan
             delta_lift = chosen_l - self._last_raw_lift
 
+            # --- 异常值剔除 (Anti-Glitch) ---
+            # 如果单帧变化超过 30度 (约0.5弧度)，认为是异常跳变
+            GLITCH_THRESHOLD = 0.5
+            if abs(delta_pan) > GLITCH_THRESHOLD or abs(delta_lift) > GLITCH_THRESHOLD:
+                # 打印详细调试信息
+                print("\n" + "="*30)
+                print(f"⚠️ GLITCH DETECTED!")
+                print(f"Delta: dPan={np.degrees(delta_pan):.1f}°, dLift={np.degrees(delta_lift):.1f}°")
+                print(f"Raw Vector: v=[{v[0]:.4f}, {v[1]:.4f}, {v[2]:.4f}]")
+                print(f"Candidates:")
+                print(f"  Setup 1 (Standard): p={np.degrees(p1):.1f}°, l={np.degrees(l1):.1f}°")
+                print(f"  Setup 2 (Flipped):  p={np.degrees(p2):.1f}°, l={np.degrees(l2):.1f}°")
+                print(f"Previous Raw: p={np.degrees(self._last_raw_pan):.1f}°, l={np.degrees(self._last_raw_lift):.1f}°")
+                print(f"Chosen Unwrapped: p={np.degrees(chosen_p):.1f}°, l={np.degrees(chosen_l):.1f}°")
+                print("="*30 + "\n")
+
+                # 暂时还是拦截它，不然会闪瞎眼
+                return {
+                    "yaw": self.target_pan / self.scale if self.scale else 0,
+                    "pitch": (self.target_lift + 1.57) / self.scale if self.scale else 0,
+                    "roll": 0,
+                    "pan": self.target_pan,
+                    "lift": self.target_lift,
+                    "is_recording": self.recorder.is_recording if self.recorder else False,
+                    "recording_frames": len(self.recorder.data["timestamps"]) if self.recorder else 0
+                }
+            # ----------------------------------
+
             self._last_raw_pan = chosen_p
             self._last_raw_lift = chosen_l
 
