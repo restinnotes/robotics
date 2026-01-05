@@ -192,42 +192,44 @@ class ArmImuController:
             # 所以 _accum_lift 初始应该跟随 Sensor 的初始状态相对值。
 
             # 修正：我们不仅需要积攒 Delta，还需要一个 Base Offset。
-            # 简化方案：直接使用 Scale 后的 Delta 累加
+            # Simplified: Use Scale with Delta accumulation
             if not hasattr(self, '_target_pan'):
-                self._target_pan = 0.0
-                # 如果初始 Sensor 是 Down (l=-1.57)，我们希望 Robot 是 Down (-1.57)
-                # 如果初始 Sensor 是 Forward (l=0)，我们希望 Robot 是 Forward (0)
-                # 所以 Offset = 0
-                self._target_lift = chosen_l # 初始直接同步绝对值
-
-                # 特殊处理：如果是 Down 启动，ensure it matches
-                # 我们的 chosen_l 是绝对角度。
-                # 如果用户希望 scale > 1，则绝对角度会放大。
-                # 我们采用 "绝对跟随 + 增量放大" 混合？
-                # 不，标准做法是：初始绝对对齐，之后只认增量。
                 self._target_pan = chosen_p
                 self._target_lift = chosen_l
             else:
                 self._target_pan += delta_pan * self.scale
                 self._target_lift += delta_lift * self.scale
 
+            # --- Numerical Stability Protection ---
+            # 1. Clamp target values to prevent unbounded growth
+            MAX_ANGLE = 6.28  # ~360 degrees
+            self._target_pan = np.clip(self._target_pan, -MAX_ANGLE, MAX_ANGLE)
+            self._target_lift = np.clip(self._target_lift, -MAX_ANGLE, MAX_ANGLE)
+
+            # 2. Check for NaN/Inf
+            if np.isnan(self._target_pan) or np.isinf(self._target_pan):
+                self._target_pan = 0.0
+            if np.isnan(self._target_lift) or np.isinf(self._target_lift):
+                self._target_lift = -1.57
+            # ----------------------------------
+
             self.target_pan = self._target_pan
             self.target_lift = self._target_lift
 
-            # 3. Apply Control
+            # 3. Apply Control - Direct assignment (safe with clamped values)
             self.data.qpos[0] = self.target_pan
-            self.data.qpos[1] = self.target_lift  # 移除限制，允许全球面运动
+            self.data.qpos[1] = self.target_lift
 
-            # 锁定小臂和手腕（防止受重力/惯性摆动）
-            # Initial pose: [0, -1.57, -1.57, -1.57, -1.57, 0]
-            # 关节2 (Elbow), 3 (Wrist 1), 4 (Wrist 2) 固定在 -1.57 (-90度)
-            # 关节5 (Wrist 3) 固定在 0
+            # Lock forearm and wrist joints
             self.data.qpos[2] = -1.57
             self.data.qpos[3] = -1.57
             self.data.qpos[4] = -1.57
             self.data.qpos[5] = 0.0
 
-            # 用于 UI 显示
+            # Reset velocities to prevent accumulated momentum
+            self.data.qvel[:] = 0.0
+
+            # For UI display
             yaw = chosen_p
             pitch = chosen_l
 
