@@ -158,13 +158,19 @@ class ArmImuController:
                 chosen_p = p2_u
                 chosen_l = l2
 
-            # 4. 计算增量并应用灵敏度
+            # 4. Calculate delta and apply sensitivity
             delta_pan = chosen_p - self._last_raw_pan
             delta_lift = chosen_l - self._last_raw_lift
 
-            # --- Anti-Glitch (REMOVED) ---
-            # Blocking logic removed to prevent deadlock at singularity positions.
-            # Slew rate limiting below handles physics stability instead.
+            # --- Singularity Handling (Gimbal Lock Prevention) ---
+            # When lift approaches ±90°, pan becomes degenerate (undefined).
+            # Freeze pan updates in singularity zone to prevent wild swings.
+            SINGULARITY_THRESHOLD = 1.4  # ~80 degrees, close to ±90
+            in_singularity = abs(chosen_l) > SINGULARITY_THRESHOLD
+
+            if in_singularity:
+                # Only update lift, keep pan frozen
+                delta_pan = 0.0
             # ----------------------------------
 
             self._last_raw_pan = chosen_p
