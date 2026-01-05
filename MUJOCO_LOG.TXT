@@ -82,3 +82,9 @@ ERROR: could not create window
 Mon Jan  5 10:22:42 2026
 ERROR: could not create window
 
+Mon Jan  5 11:48:59 2026
+ERROR: could not create window
+
+Mon Jan  5 12:14:06 2026
+ERROR: could not create window
+

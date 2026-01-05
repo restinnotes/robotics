@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--rate", "-r", type=int, default=50, help="采样率 Hz")
     parser.add_argument("--scale", type=float, default=1.5, help="旋转灵敏度")
     parser.add_argument("--no-viewer", action="store_true", help="无图形界面模式（适用于无显示环境）")
-    parser.add_argument("--no-drift-compensation", action="store_true", help="禁用 Python 层面的自适应漂移补偿")
+    parser.add_argument("--enable-drift-compensation", action="store_true", help="启用 Python 层面的自适应漂移补偿（默认禁用）")
     args = parser.parse_args()
 
     # 加载模型（使用相对路径，与可工作的 check_imu 保持一致）
@@ -72,13 +72,13 @@ def main():
     receiver = BHy2CLIReceiver(
         sensor_id=37,
         sample_rate=args.rate,
-        enable_drift_compensation=not args.no_drift_compensation  # 允许禁用
+        enable_drift_compensation=args.enable_drift_compensation  # 默认禁用，需要显式启用
     )
 
-    if not args.no_drift_compensation:
+    if args.enable_drift_compensation:
         print("已启用自适应漂移补偿 (软件层)")
     else:
-        print("已禁用自适应漂移补偿 (软件层)")
+        print("已禁用自适应漂移补偿 (软件层，默认)")
 
     if not receiver.connect(perform_gyro_foc=True):
         print("连接失败!")
@@ -114,22 +114,35 @@ def main():
 
         try:
             while True:
-                # 获取相对旋转 (Rotation 对象)
+                # ============================================================
+                # 四元数到机械臂动作的映射逻辑
+                # ============================================================
+                # 1. 获取传感器四元数（已校准，相对于初始姿态）
                 orientation = receiver.get_orientation()
 
                 if orientation:
-                    # 将四元数转换为欧拉角 (zyx顺序: yaw, pitch, roll)
+                    # 2. 将四元数转换为欧拉角 (zyx顺序: yaw, pitch, roll)
+                    #    - yaw (Z轴旋转): 水平旋转，左右转动
+                    #    - pitch (Y轴旋转): 前后倾斜
+                    #    - roll (X轴旋转): 左右倾斜
                     euler = orientation.as_euler('zyx', degrees=False)
                     yaw, pitch, roll = euler
 
-                    # 限制角度范围，防止过度旋转
+                    # 3. 映射到机械臂关节角度
+                    #    - target_pan (关节0, Shoulder Pan): 水平旋转
+                    #      直接使用 yaw，乘以灵敏度系数
                     target_pan = yaw * args.scale
+                    
+                    #    - target_lift (关节1, Shoulder Lift): 大臂抬起/放下
+                    #      初始位置是 -1.57 弧度（-90度），加上 pitch 变化
                     target_lift = -1.57 + pitch * args.scale
+                    
+                    #    - target_elbow (关节2, Elbow): 肘部弯曲（当前未使用）
                     target_elbow = -1.57 + roll * args.scale
 
-                    # 应用控制
-                    data.qpos[0] = target_pan
-                    data.qpos[1] = np.clip(target_lift, -3.14, 0)
+                    # 4. 应用控制到机械臂
+                    data.qpos[0] = target_pan  # 水平旋转
+                    data.qpos[1] = np.clip(target_lift, -3.14, 0)  # 大臂抬起（限制在 -180° 到 0°）
 
                     # 调试输出
                     if time.time() - last_print_time > 0.5:
@@ -154,22 +167,35 @@ def main():
 
                 try:
                     while viewer.is_running():
-                        # 获取相对旋转 (Rotation 对象)
+                        # ============================================================
+                        # 四元数到机械臂动作的映射逻辑
+                        # ============================================================
+                        # 1. 获取传感器四元数（已校准，相对于初始姿态）
                         orientation = receiver.get_orientation()
 
                         if orientation:
-                            # 将四元数转换为欧拉角 (zyx顺序: yaw, pitch, roll)
+                            # 2. 将四元数转换为欧拉角 (zyx顺序: yaw, pitch, roll)
+                            #    - yaw (Z轴旋转): 水平旋转，左右转动
+                            #    - pitch (Y轴旋转): 前后倾斜
+                            #    - roll (X轴旋转): 左右倾斜
                             euler = orientation.as_euler('zyx', degrees=False)
                             yaw, pitch, roll = euler
 
-                            # 限制角度范围，防止过度旋转
+                            # 3. 映射到机械臂关节角度
+                            #    - target_pan (关节0, Shoulder Pan): 水平旋转
+                            #      直接使用 yaw，乘以灵敏度系数
                             target_pan = yaw * args.scale
+                            
+                            #    - target_lift (关节1, Shoulder Lift): 大臂抬起/放下
+                            #      初始位置是 -1.57 弧度（-90度），加上 pitch 变化
                             target_lift = -1.57 + pitch * args.scale
+                            
+                            #    - target_elbow (关节2, Elbow): 肘部弯曲（当前未使用）
                             target_elbow = -1.57 + roll * args.scale
 
-                            # 应用控制
-                            data.qpos[0] = target_pan
-                            data.qpos[1] = np.clip(target_lift, -3.14, 0)
+                            # 4. 应用控制到机械臂
+                            data.qpos[0] = target_pan  # 水平旋转
+                            data.qpos[1] = np.clip(target_lift, -3.14, 0)  # 大臂抬起（限制在 -180° 到 0°）
 
                             # 调试输出
                             if time.time() - last_print_time > 0.5:

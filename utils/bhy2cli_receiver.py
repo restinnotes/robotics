@@ -310,12 +310,15 @@ class BHy2CLIReceiver(IMUDataSource):
         """
         检测静止状态并自适应补偿漂移
         在 _parse_line 中调用
+        改进：提高补偿速度，添加快速重置机制
         """
         if not hasattr(self, '_prev_raw_quat'):
             self._prev_raw_quat = self._raw_quat
             self._prev_quat_time = time.time()
             self._zero_offset = R.identity()
             self._stillness_counter = 0
+            self._stillness_start_time = None
+            self._fast_reset_printed = False  # 避免重复打印快速重置信息
             return
 
         # 计算两帧之间的角度变化
@@ -328,28 +331,73 @@ class BHy2CLIReceiver(IMUDataSource):
         else:
             angular_rate = 0
 
-        # 判断是否静止 (角速度 < 阈值)
-        STILLNESS_THRESHOLD = 5.0  # 度/秒
+        # 判断是否静止 (降低阈值，更容易触发)
+        STILLNESS_THRESHOLD = 3.0  # 度/秒 (从 5.0 降低到 3.0)
+        STILLNESS_FRAMES_START = 5  # 开始补偿所需的静止帧数 (从 10 降低到 5)
+        STILLNESS_FRAMES_FAST_RESET = 30  # 快速重置所需的静止帧数 (约 0.6 秒)
+        FAST_RESET_ANGLE_THRESHOLD = 10.0  # 快速重置的角度阈值 (度)
 
         if angular_rate < STILLNESS_THRESHOLD:
             self._stillness_counter += 1
+            
+            # 记录静止开始时间
+            if self._stillness_start_time is None:
+                self._stillness_start_time = time.time()
+            
+            stillness_duration = time.time() - self._stillness_start_time
 
             # 连续静止超过一定帧数后，开始校正漂移
-            if self._stillness_counter > 10:  # 大约 0.2 秒静止
+            if self._stillness_counter > STILLNESS_FRAMES_START:
                 # 获取当前校准后的姿态（不含 zero_offset）
                 calibrated_no_offset = self._calib_inv * self._raw_quat
+                
+                # 计算当前偏差角度
+                current_offset_rotvec = calibrated_no_offset.as_rotvec()
+                current_offset_angle = np.linalg.norm(current_offset_rotvec) * 180 / np.pi  # 度
 
-                # 计算需要补偿的偏移量（让它回到零）
-                # 使用指数平滑逐渐调整
-                alpha = 0.02  # 调整速度，越小越平滑
+                # 快速重置机制：如果静止时间足够长且偏差较大，直接重置
+                # 假设传感器已经放回初始校准位置，重置零点偏移以消除漂移
+                if (self._stillness_counter > STILLNESS_FRAMES_FAST_RESET and 
+                    current_offset_angle > FAST_RESET_ANGLE_THRESHOLD):
+                    # 重置零点偏移：将当前姿态拉回零点（identity）
+                    # calibrated_no_offset 是当前相对于初始校准点的姿态
+                    # 如果传感器放回原位，calibrated_no_offset 应该接近 identity
+                    # 但由于漂移，calibrated_no_offset 有偏差
+                    # 我们希望 get_orientation() 返回 identity，所以需要：
+                    # zero_offset.inv() * calibrated_no_offset = identity
+                    # 即 zero_offset = calibrated_no_offset
+                    self._zero_offset = calibrated_no_offset
+                    
+                    # 只打印一次，避免重复打印（每 3 秒最多打印一次）
+                    current_time = time.time()
+                    if not hasattr(self, '_last_reset_print_time'):
+                        self._last_reset_print_time = current_time
+                        print(f">>> 快速重置零点 (静止 {stillness_duration:.1f}秒, 偏差 {current_offset_angle:.1f}°)")
+                    elif current_time - self._last_reset_print_time > 3.0:
+                        self._last_reset_print_time = current_time
+                        print(f">>> 快速重置零点 (静止 {stillness_duration:.1f}秒, 偏差 {current_offset_angle:.1f}°)")
+                else:
+                    # 使用自适应补偿速度：偏差越大，补偿越快
+                    if current_offset_angle > 20.0:
+                        alpha = 0.15  # 大偏差时快速补偿
+                    elif current_offset_angle > 10.0:
+                        alpha = 0.10  # 中等偏差
+                    elif current_offset_angle > 5.0:
+                        alpha = 0.05  # 小偏差
+                    else:
+                        alpha = 0.02  # 微小偏差，平滑补偿
 
-                if hasattr(self, '_zero_offset'):
-                    # 逐渐将当前姿态拉回零点
-                    current_offset = calibrated_no_offset.as_rotvec()
-                    new_offset_rotvec = self._zero_offset.as_rotvec() + alpha * current_offset
-                    self._zero_offset = R.from_rotvec(new_offset_rotvec)
+                    if hasattr(self, '_zero_offset'):
+                        # 逐渐将当前姿态拉回零点
+                        new_offset_rotvec = self._zero_offset.as_rotvec() + alpha * current_offset_rotvec
+                        self._zero_offset = R.from_rotvec(new_offset_rotvec)
         else:
+            # 检测到运动，重置静止计数器和打印标志
             self._stillness_counter = 0
+            self._stillness_start_time = None
+            if hasattr(self, '_last_reset_print_time'):
+                # 重置打印时间戳，允许下次快速重置时打印
+                self._last_reset_print_time = 0
 
         self._prev_raw_quat = self._raw_quat
         self._prev_quat_time = time.time()
