@@ -133,6 +133,11 @@ class ArmImuController:
         # Rate limiting constant
         MAX_DELTA_PER_FRAME = np.radians(30)  # 30 degrees max per frame
 
+        # Initialize print throttling
+        if not hasattr(self, '_last_print_time'):
+            self._last_print_time = 0
+        PRINT_INTERVAL = 0.5
+
         # 1. Get Orientation
         orientation = self.receiver.get_orientation()
         yaw, pitch, roll = 0, 0, 0 # Visualization values
@@ -160,6 +165,7 @@ class ArmImuController:
             elif delta < -np.pi:
                 delta += 2 * np.pi
 
+            original_delta = delta
             # Rate limiting (clamp)
             delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
 
@@ -179,6 +185,13 @@ class ArmImuController:
             # Apply to robot joints
             self.data.qpos[0] = self.target_pan
             self.data.qpos[1] = self.target_lift
+
+            # Throttled Debug Output
+            if time.time() - self._last_print_time > PRINT_INTERVAL:
+                self._last_print_time = time.time()
+                delta_deg = np.degrees(original_delta)
+                clipped = " [CLIPPED]" if abs(original_delta) > MAX_DELTA_PER_FRAME * 0.99 else ""
+                print(f"Pitch: {np.degrees(current_pitch):6.1f}° | Delta: {delta_deg:5.1f}°{clipped} | Lift: {np.degrees(self.target_lift):6.1f}°")
 
             # Lock other joints
             self.data.qpos[2] = -1.57
