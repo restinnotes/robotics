@@ -167,8 +167,11 @@ def main():
                 elif delta < -np.pi:
                     delta += 2 * np.pi
 
-                # 保存原始增量用于调试
-                last_delta = delta
+                # ====== 第一层保护: Delta 限制 ======
+                # 防止传感器噪声或丢帧导致的异常大增量
+                original_delta = delta
+                delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
+                last_delta = original_delta
 
                 # 累加 (带灵敏度系数)
                 accumulated_lift += delta * args.scale
@@ -182,27 +185,36 @@ def main():
 
             # 最终 NaN 检查
             if not np.isfinite(target_lift):
-                print(f"[WARN] Invalid target_lift: {target_lift}, resetting to -1.57")
-                target_lift = -1.57
-                accumulated_lift = -1.57
+                print(f"[WARN] Invalid target_lift: {target_lift}, resetting")
+                target_lift = data.qpos[1]  # 保持当前位置
+                accumulated_lift = data.qpos[1]
 
             # ============================================
-            # 5. 平滑插值 (Exponential Smoothing)
+            # 5. 平滑插值 + 误差限制
             # ============================================
-            # 不直接跳到目标位置，而是每帧向目标靠近一定比例
-            # 这样可以防止瞬移导致的无限加速度
-            SMOOTHING_ALPHA = 0.15  # 每帧移动 15% 的距离 (可调)
+            SMOOTHING_ALPHA = 0.2  # 每帧移动 20% (稍快一点)
+            MAX_ERROR = np.radians(60)  # 最大允许 60 度误差
 
             # 当前位置
-            current_qpos_pan = data.qpos[0]
             current_qpos_lift = data.qpos[1]
 
+            # 计算误差
+            error_lift = target_lift - current_qpos_lift
+
+            # ====== 第二层保护: 误差限制 ======
+            # 如果目标跑得太远，限制追赶速度
+            error_lift = np.clip(error_lift, -MAX_ERROR, MAX_ERROR)
+
+            # ====== 第三层保护: 同步累积值 ======
+            # 如果误差被裁剪了，说明目标跑太远，需要把累积值拉回来
+            if abs(target_lift - current_qpos_lift) > MAX_ERROR:
+                accumulated_lift = current_qpos_lift + error_lift
+
             # 平滑插值
-            new_qpos_pan = current_qpos_pan + SMOOTHING_ALPHA * (target_pan - current_qpos_pan)
-            new_qpos_lift = current_qpos_lift + SMOOTHING_ALPHA * (target_lift - current_qpos_lift)
+            new_qpos_lift = current_qpos_lift + SMOOTHING_ALPHA * error_lift
 
             # 应用
-            data.qpos[0] = new_qpos_pan
+            data.qpos[0] = 0.0  # Pan 锁定
             data.qpos[1] = new_qpos_lift
 
             frame_count += 1
@@ -211,8 +223,9 @@ def main():
             if time.time() - last_print_time > PRINT_INTERVAL:
                 last_print_time = time.time()
                 delta_deg = np.degrees(last_delta)
+                err_deg = np.degrees(error_lift)
                 clipped = " [CLIPPED]" if abs(last_delta) > MAX_DELTA_PER_FRAME * 0.99 else ""
-                print(f"Pitch: {np.degrees(current_pitch):6.1f}° | Delta: {delta_deg:5.1f}°{clipped} | Lift: {np.degrees(target_lift):6.1f}°")
+                print(f"Delta: {delta_deg:5.1f}°{clipped} | Err: {err_deg:5.1f}° | Lift: {np.degrees(new_qpos_lift):6.1f}°")
 
         mujoco.mj_step(model, data)
 
