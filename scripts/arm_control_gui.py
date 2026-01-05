@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox, filedialog
 import os
 import sys
 import glob
+import numpy as np
 
 # Ensure project root is in path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -147,6 +148,10 @@ class ArmControlApp:
         if self.controller:
             return
 
+        # Close playback if running to avoid conflicts
+        if self.player:
+            self.cmd_stop_playback()
+
         try:
             self.controller = ArmImuController(no_viewer=False) # Separate thread/process for viewer?
             # Note: launch_passive runs in same process, so update_loop needs to call sync()
@@ -189,6 +194,16 @@ class ArmControlApp:
         if not sel:
             return
 
+        # Close controller viewer if running to avoid conflicts
+        if self.controller and self.controller.viewer:
+            try:
+                if self.controller.viewer.is_running():
+                    # Ask user or auto-close controller viewer
+                    # For now, we'll just close it automatically
+                    self.controller.viewer.close()
+            except:
+                pass
+
         filename = self.listbox.get(sel[0])
         abs_path = os.path.join(project_root, filename)
 
@@ -205,6 +220,8 @@ class ArmControlApp:
                 self.lbl_play_info.config(text="Failed to load file")
         except Exception as e:
             messagebox.showerror("Error", str(e))
+            import traceback
+            traceback.print_exc()
 
     def cmd_stop_playback(self):
         if self.player:
@@ -242,11 +259,22 @@ class ArmControlApp:
                 p_stats = self.player.step()
                 if p_stats:
                     self.lbl_play_info.config(text=f"Frame: {p_stats['frame']}/{p_stats['total_frames']}")
+                elif not self.player.is_playing:
+                    # Playback ended naturally
+                    self.lbl_play_info.config(text="Playback finished")
 
-                if self.player.viewer and not self.player.viewer.is_running():
-                    self.cmd_stop_playback()
+                # Check if viewer was closed
+                if self.player.viewer:
+                    try:
+                        if not self.player.viewer.is_running():
+                            self.cmd_stop_playback()
+                    except:
+                        # Viewer may have been closed unexpectedly
+                        self.cmd_stop_playback()
             except Exception as e:
-                print(e)
+                print(f"Playback error: {e}")
+                import traceback
+                traceback.print_exc()
                 self.cmd_stop_playback()
 
         # Schedule next

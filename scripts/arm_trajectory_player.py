@@ -134,8 +134,18 @@ class ArmTrajectoryPlayer:
 
         mujoco.mj_step(self.model, self.data)
 
-        if self.viewer and self.viewer.is_running():
-            self.viewer.sync()
+        # Safely sync viewer with error handling
+        if self.viewer:
+            try:
+                if self.viewer.is_running():
+                    self.viewer.sync()
+                else:
+                    # Viewer was closed, stop playing
+                    self.is_playing = False
+            except Exception as e:
+                # Viewer may have been closed unexpectedly
+                print(f"Viewer sync error: {e}")
+                self.is_playing = False
 
         return {
             "frame": frame_idx,
@@ -153,7 +163,14 @@ class ArmTrajectoryPlayer:
 
     def close(self):
         if self.viewer:
-            self.viewer.close()
+            try:
+                if self.viewer.is_running():
+                    self.viewer.close()
+            except Exception as e:
+                print(f"Error closing viewer: {e}")
+            finally:
+                self.viewer = None
+        self.is_playing = False
 
 # CLI Main
 def main():

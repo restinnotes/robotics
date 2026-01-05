@@ -139,9 +139,15 @@ class ArmImuController:
         # 5. Physics Step
         mujoco.mj_step(self.model, self.data)
 
-        # 6. Viewer Sync
-        if self.viewer and self.viewer.is_running():
-            self.viewer.sync()
+        # 6. Viewer Sync (with error handling)
+        if self.viewer:
+            try:
+                if self.viewer.is_running():
+                    self.viewer.sync()
+            except Exception as e:
+                # Viewer may have been closed unexpectedly
+                print(f"Viewer sync error: {e}")
+                self.viewer = None
 
         return {
             "yaw": yaw,
@@ -162,7 +168,13 @@ class ArmImuController:
 
     def close(self):
         if self.viewer:
-            self.viewer.close()
+            try:
+                if self.viewer.is_running():
+                    self.viewer.close()
+            except Exception as e:
+                print(f"Error closing viewer: {e}")
+            finally:
+                self.viewer = None
         if self.receiver:
             self.receiver.disconnect()
         if self.recorder and self.recorder.is_recording:
