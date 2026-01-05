@@ -146,9 +146,8 @@ class ArmImuController:
             # Reset velocities to prevent accumulated momentum
             # self.data.qvel[:] = 0.0  # Removed to restore responsiveness
 
-            # For UI display
-            yaw = chosen_p
-            pitch = chosen_l
+            # For UI display - use the actual yaw/pitch from Euler angles
+            # (yaw and pitch are already set from euler above, no need to reassign)
 
             # 4. Record if enabled
             if self.recorder and self.recorder.is_recording:
