@@ -122,7 +122,7 @@ class ArmImuController:
 
             # 3. Apply Control
             self.data.qpos[0] = self.target_pan
-            self.data.qpos[1] = np.clip(self.target_lift, -3.14, 0)
+            self.data.qpos[1] = self.target_lift  # 移除限制，允许全球面运动
 
             # 4. Record if enabled
             if self.recorder and self.recorder.is_recording:
