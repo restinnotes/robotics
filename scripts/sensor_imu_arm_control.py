@@ -157,10 +157,7 @@ class ArmImuController:
             elif delta < -np.pi:
                 delta += 2 * np.pi
 
-            # Rate limiting (clamp)
-            delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
-
-            # Accumulate with scale
+            # Accumulate with scale (no rate limiting, smoothing handles it)
             self.target_lift += delta * self.scale
 
             # Update last pitch
@@ -173,11 +170,16 @@ class ArmImuController:
             if not np.isfinite(self.target_lift):
                 self.target_lift = -1.57
 
-            # Apply to robot joints
-            self.data.qpos[0] = self.target_pan
-            self.data.qpos[1] = self.target_lift
+            # ============================================
+            # Exponential Smoothing (prevents infinite acceleration)
+            # ============================================
+            SMOOTHING_ALPHA = 0.15  # Move 15% towards target each frame
 
-            # Lock other joints
+            # Smooth interpolation for controlled joints
+            self.data.qpos[0] += SMOOTHING_ALPHA * (self.target_pan - self.data.qpos[0])
+            self.data.qpos[1] += SMOOTHING_ALPHA * (self.target_lift - self.data.qpos[1])
+
+            # Lock other joints (direct assignment is fine for fixed values)
             self.data.qpos[2] = -1.57
             self.data.qpos[3] = -1.57
             self.data.qpos[4] = -1.57

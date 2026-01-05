@@ -167,11 +167,8 @@ def main():
                 elif delta < -np.pi:
                     delta += 2 * np.pi
 
-                # ====== 速率限制 (Clamp) ======
-                # 防止单帧变化过大导致仿真爆炸
-                original_delta = delta
-                delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
-                last_delta = original_delta  # 保存原始值用于调试
+                # 保存原始增量用于调试
+                last_delta = delta
 
                 # 累加 (带灵敏度系数)
                 accumulated_lift += delta * args.scale
@@ -179,7 +176,7 @@ def main():
             # 更新上一帧角度
             last_pitch = current_pitch
 
-            # 4. 映射到机械臂
+            # 4. 目标位置
             target_pan = 0.0
             target_lift = accumulated_lift
 
@@ -189,9 +186,24 @@ def main():
                 target_lift = -1.57
                 accumulated_lift = -1.57
 
-            # 5. 应用控制
-            data.qpos[0] = target_pan
-            data.qpos[1] = target_lift
+            # ============================================
+            # 5. 平滑插值 (Exponential Smoothing)
+            # ============================================
+            # 不直接跳到目标位置，而是每帧向目标靠近一定比例
+            # 这样可以防止瞬移导致的无限加速度
+            SMOOTHING_ALPHA = 0.15  # 每帧移动 15% 的距离 (可调)
+
+            # 当前位置
+            current_qpos_pan = data.qpos[0]
+            current_qpos_lift = data.qpos[1]
+
+            # 平滑插值
+            new_qpos_pan = current_qpos_pan + SMOOTHING_ALPHA * (target_pan - current_qpos_pan)
+            new_qpos_lift = current_qpos_lift + SMOOTHING_ALPHA * (target_lift - current_qpos_lift)
+
+            # 应用
+            data.qpos[0] = new_qpos_pan
+            data.qpos[1] = new_qpos_lift
 
             frame_count += 1
 
