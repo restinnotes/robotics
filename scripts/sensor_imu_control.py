@@ -7,7 +7,10 @@ BHy2CLI 单轴机械臂控制 (Lift Only)
 原理:
     使用向量投影 (Vector Projection) 取代欧拉角。
     将传感器视为一个指向矢。计算该指向矢在垂直方向的分量 (Z分量) 来确定俯仰角。
-    这种方法完全避免了 Gimbal Lock (死锁) 和 Yaw 轴旋转带来的干扰。
+    包含角度展开 (Unwrapping) 逻辑，支持 360 度连续旋转。
+
+注意:
+    在极快速旋转下，由于物理仿真步长限制，可能会出现闪现 (Flashing) 或位置跳变。
 """
 
 import time
@@ -167,11 +170,11 @@ def main():
                 elif delta < -np.pi:
                     delta += 2 * np.pi
 
-                # ====== 第一层保护: Delta 限制 ======
-                # 防止传感器噪声或丢帧导致的异常大增量
+                # ====== 速率限制 (Clamp) ======
+                # 防止单帧变化过大导致仿真爆炸
                 original_delta = delta
                 delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
-                last_delta = original_delta
+                last_delta = original_delta  # 保存原始值用于调试
 
                 # 累加 (带灵敏度系数)
                 accumulated_lift += delta * args.scale
@@ -179,43 +182,19 @@ def main():
             # 更新上一帧角度
             last_pitch = current_pitch
 
-            # 4. 目标位置
+            # 4. 映射到机械臂
             target_pan = 0.0
             target_lift = accumulated_lift
 
             # 最终 NaN 检查
             if not np.isfinite(target_lift):
-                print(f"[WARN] Invalid target_lift: {target_lift}, resetting")
-                target_lift = data.qpos[1]  # 保持当前位置
-                accumulated_lift = data.qpos[1]
+                print(f"[WARN] Invalid target_lift: {target_lift}, resetting to -1.57")
+                target_lift = -1.57
+                accumulated_lift = -1.57
 
-            # ============================================
-            # 5. 平滑插值 + 误差限制
-            # ============================================
-            SMOOTHING_ALPHA = 0.2  # 每帧移动 20% (稍快一点)
-            MAX_ERROR = np.radians(60)  # 最大允许 60 度误差
-
-            # 当前位置
-            current_qpos_lift = data.qpos[1]
-
-            # 计算误差
-            error_lift = target_lift - current_qpos_lift
-
-            # ====== 第二层保护: 误差限制 ======
-            # 如果目标跑得太远，限制追赶速度
-            error_lift = np.clip(error_lift, -MAX_ERROR, MAX_ERROR)
-
-            # ====== 第三层保护: 同步累积值 ======
-            # 如果误差被裁剪了，说明目标跑太远，需要把累积值拉回来
-            if abs(target_lift - current_qpos_lift) > MAX_ERROR:
-                accumulated_lift = current_qpos_lift + error_lift
-
-            # 平滑插值
-            new_qpos_lift = current_qpos_lift + SMOOTHING_ALPHA * error_lift
-
-            # 应用
-            data.qpos[0] = 0.0  # Pan 锁定
-            data.qpos[1] = new_qpos_lift
+            # 5. 应用控制
+            data.qpos[0] = target_pan
+            data.qpos[1] = target_lift
 
             frame_count += 1
 
@@ -223,9 +202,8 @@ def main():
             if time.time() - last_print_time > PRINT_INTERVAL:
                 last_print_time = time.time()
                 delta_deg = np.degrees(last_delta)
-                err_deg = np.degrees(error_lift)
                 clipped = " [CLIPPED]" if abs(last_delta) > MAX_DELTA_PER_FRAME * 0.99 else ""
-                print(f"Delta: {delta_deg:5.1f}°{clipped} | Err: {err_deg:5.1f}° | Lift: {np.degrees(new_qpos_lift):6.1f}°")
+                print(f"Pitch: {np.degrees(current_pitch):6.1f}° | Delta: {delta_deg:5.1f}°{clipped} | Lift: {np.degrees(target_lift):6.1f}°")
 
         mujoco.mj_step(model, data)
 

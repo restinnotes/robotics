@@ -3,6 +3,9 @@ Arm Control Logic with Recording
 ================================
 Encapsulates the arm control logic, IMU connection, and recording into a class
 for easier integration with UI.
+
+Note: In extremely fast rotation cases, flashing or teleporting bugs may occur
+due to physical simulation constraints.
 """
 
 import time
@@ -147,8 +150,6 @@ class ArmImuController:
             # Initialize state on first call
             if not hasattr(self, '_last_pitch'):
                 self._last_pitch = current_pitch
-                self._max_delta = np.radians(30)  # Max 30 deg per frame
-                self._max_error = np.radians(60)  # Max 60 deg error
 
             # Angle Unwrapping
             delta = current_pitch - self._last_pitch
@@ -159,8 +160,8 @@ class ArmImuController:
             elif delta < -np.pi:
                 delta += 2 * np.pi
 
-            # Layer 1: Delta clamping
-            delta = np.clip(delta, -self._max_delta, self._max_delta)
+            # Rate limiting (clamp)
+            delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
 
             # Accumulate with scale
             self.target_lift += delta * self.scale
@@ -173,27 +174,11 @@ class ArmImuController:
 
             # Final NaN check
             if not np.isfinite(self.target_lift):
-                self.target_lift = self.data.qpos[1]
+                self.target_lift = -1.57
 
-            # ============================================
-            # Exponential Smoothing + Error Clamping
-            # ============================================
-            SMOOTHING_ALPHA = 0.2
-
-            # Current position
-            current_lift = self.data.qpos[1]
-
-            # Calculate and clamp error
-            error = self.target_lift - current_lift
-            error = np.clip(error, -self._max_error, self._max_error)
-
-            # Layer 3: Sync accumulated value if error was clamped
-            if abs(self.target_lift - current_lift) > self._max_error:
-                self.target_lift = current_lift + error
-
-            # Apply smoothed movement
-            self.data.qpos[0] = 0.0
-            self.data.qpos[1] = current_lift + SMOOTHING_ALPHA * error
+            # Apply to robot joints
+            self.data.qpos[0] = self.target_pan
+            self.data.qpos[1] = self.target_lift
 
             # Lock other joints
             self.data.qpos[2] = -1.57
