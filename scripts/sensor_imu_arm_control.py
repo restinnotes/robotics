@@ -105,6 +105,18 @@ class ArmImuController:
         self.recorder.save() # Auto save with timestamp
         return stats
 
+    def _get_pitch_from_vector(self, orientation: R) -> float:
+        """
+        Calculates pitch using vector projection to avoid gimbal lock.
+        Same logic as in sensor_imu_control.py.
+        """
+        ref_vector = np.array([1.0, 0.0, 0.0])
+        rotated_vector = orientation.apply(ref_vector)
+        v_z = rotated_vector[2]
+        v_z = np.clip(v_z, -1.0, 1.0)
+        pitch = np.arcsin(v_z)
+        return pitch
+
     def step(self):
         """
         Execute one control step.
@@ -115,71 +127,47 @@ class ArmImuController:
 
         # 1. Get Orientation
         orientation = self.receiver.get_orientation()
-        yaw, pitch, roll = 0, 0, 0
+        yaw, pitch, roll = 0, 0, 0 # Visualization values
 
         if orientation:
-            # --- Direct Euler Angle Mapping ---
-            # Yaw -> Pan, Pitch -> Lift (direct and intuitive)
-            euler = orientation.as_euler('zyx', degrees=False)
-            raw_yaw, raw_pitch, raw_roll = euler
+            # --- Single Axis (Lift) Logic with Vector Projection ---
 
-            # Initialize state for continuous rotation tracking
-            if not hasattr(self, '_last_yaw'):
-                self._last_yaw = raw_yaw
-                self._last_pitch = raw_pitch
-                self._accum_pan = 0.0
-                self._accum_lift = -1.57  # Start pointing down
+            # Calculate Pitch robustly
+            pitch_rad = self._get_pitch_from_vector(orientation)
 
-            # --- Angle Unwrapping for Continuous Rotation ---
-            # Handle Yaw wrap-around at ±π
-            delta_yaw = raw_yaw - self._last_yaw
-            if delta_yaw > np.pi:
-                delta_yaw -= 2 * np.pi
-            elif delta_yaw < -np.pi:
-                delta_yaw += 2 * np.pi
+            # Pan Locked to 0
+            self.target_pan = 0.0
 
-            # Handle Pitch wrap-around (less common but possible)
-            delta_pitch = raw_pitch - self._last_pitch
-            if delta_pitch > np.pi:
-                delta_pitch -= 2 * np.pi
-            elif delta_pitch < -np.pi:
-                delta_pitch += 2 * np.pi
+            # Lift Mapped from Pitch
+            # Initial position -1.57 (vertical up) corresponds to Pitch 0 (arm horizontal)?
+            # Adjust mapping based on sensor_imu_control.py Logic:
+            # target_lift = -1.57 + pitch * args.scale
+            self.target_lift = -1.57 + pitch_rad * self.scale
 
-            # Update last known values
-            self._last_yaw = raw_yaw
-            self._last_pitch = raw_pitch
-
-            # Accumulate with scale
-            self._accum_pan += delta_yaw * self.scale
-            self._accum_lift += delta_pitch * self.scale
-
-            # Apply to target
-            self.target_pan = self._accum_pan
-            self.target_lift = self._accum_lift
+            # Apply bounds
+            self.target_lift = np.clip(self.target_lift, -3.14, 0)
 
             # Apply to robot joints
             self.data.qpos[0] = self.target_pan
             self.data.qpos[1] = self.target_lift
 
-            # Lock forearm and wrist joints
+            # Lock other joints
             self.data.qpos[2] = -1.57
             self.data.qpos[3] = -1.57
             self.data.qpos[4] = -1.57
             self.data.qpos[5] = 0.0
 
-            # For UI display
-            yaw = raw_yaw
-            pitch = raw_pitch
+            # UI Visualization
+            yaw = 0.0 # Locked
+            pitch = pitch_rad
+            roll = 0.0 # Ignored
 
             # 4. Record if enabled
             if self.recorder and self.recorder.is_recording:
-                # We record the mapping source (IMU) and the result (qpos)
-                # Currently MotionRecorder expects specific format, let's adapt
-                # We'll save the raw quat as imu_upper
                 quat = orientation.as_quat() # x,y,z,w
                 self.recorder.record_frame(
                     qpos=self.data.qpos,
-                    qvel=self.data.qvel, # Not strictly controlled but good for checking
+                    qvel=self.data.qvel,
                     imu_upper=quat
                 )
 
@@ -197,13 +185,13 @@ class ArmImuController:
                 self.viewer = None
 
         return {
-            "yaw": yaw,
+            "yaw": yaw, # display 0 since locked
             "pitch": pitch,
             "roll": roll,
             "pan": self.target_pan,
             "lift": self.target_lift,
             "is_recording": self.recorder.is_recording,
-            "recording_frames": len(self.recorder.data["timestamps"])
+            "recording_frames": len(self.recorder.data["timestamps"]) if self.recorder.is_recording else 0
         }
 
     def launch_viewer(self):
