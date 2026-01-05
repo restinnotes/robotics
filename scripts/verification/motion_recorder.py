@@ -42,6 +42,20 @@ class MotionRecorder:
         duration = time.time() - self.start_time if self.start_time else 0
         n_frames = len(self.data["timestamps"])
         print(f"⏹ 停止记录: {n_frames} 帧, {duration:.1f} 秒")
+        return self.get_recording_stats()
+
+    def get_recording_stats(self):
+        """获取录制状态"""
+        duration = time.time() - self.start_time if self.start_time and self.is_recording else 0
+        if not self.is_recording and self.start_time:
+             # 如果停止了，计算总时长
+             duration = (self.data["timestamps"][-1] - self.data["timestamps"][0]) if self.data["timestamps"] else 0
+
+        return {
+            "is_recording": self.is_recording,
+            "n_frames": len(self.data["timestamps"]),
+            "duration": duration
+        }
 
     def record_frame(self, qpos=None, qvel=None,
                      imu_upper=None, imu_fore=None,
