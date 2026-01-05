@@ -125,41 +125,56 @@ def main():
     last_print_time = 0
     PRINT_INTERVAL = 0.5  # 打印间隔 (秒)
 
+    # ============================================
+    # 角度展开状态变量 (Angle Unwrapping)
+    # ============================================
+    # 用于实现平滑连续旋转，避免±180°跳变
+    last_pitch = None  # 上一帧的 pitch 角度
+    accumulated_lift = -1.57  # 累积的 lift 角度 (从初始位置开始)
+
     # 定义控制循环逻辑
     def control_loop_step():
-        nonlocal last_print_time
+        nonlocal last_print_time, last_pitch, accumulated_lift
 
         # 1. 获取姿态
         orientation = receiver.get_orientation()
 
         if orientation:
-            # 2. 计算 Pitch (使用 arctan2 向量投影，范围 ±180)
-            pitch = get_pitch_from_vector(orientation)
+            # 2. 计算当前 Pitch (arctan2, 范围 ±π)
+            current_pitch = get_pitch_from_vector(orientation)
 
-            # 3. 映射到机械臂
+            # 3. 角度展开 (Unwrap)
+            if last_pitch is not None:
+                # 计算增量
+                delta = current_pitch - last_pitch
+
+                # 检测跨越 ±180° 边界的跳变
+                if delta > np.pi:
+                    delta -= 2 * np.pi
+                elif delta < -np.pi:
+                    delta += 2 * np.pi
+
+                # 累加 (带灵敏度系数)
+                accumulated_lift += delta * args.scale
+
+            # 更新上一帧角度
+            last_pitch = current_pitch
+
+            # 4. 映射到机械臂
             # Pan 轴锁定为 0
             target_pan = 0.0
 
-            # Lift 轴: 初始 -1.57 (竖直向上/向后) + Pitch
-            # 假设:
-            # - 用户平举 (Pitch=0) -> 机械臂水平? (需要根据实际感受调整 offset)
-            # - ur3e 'ur3e_vertical.xml': 0 是平躺? -1.57 是竖起?
-            #
-            # 假设: 用户平举(Pitch=0)时, 我们希望机械臂Lift关节是 -1.57(竖直) 还是 0(水平)?
-            # 通常 -1.57 是向上。
-            target_lift = -1.57 + pitch * args.scale
+            # Lift 轴: 使用累积角度
+            target_lift = accumulated_lift
 
-            # 4. 应用控制
+            # 5. 应用控制
             data.qpos[0] = target_pan
+            data.qpos[1] = target_lift
 
-            # 取消 Lift 轴的硬限制 (允许 ±360 旋转)
-            # data.qpos[1] = np.clip(target_lift, -3.14, 0) # OLD: clipped
-            data.qpos[1] = target_lift # NEW: full range
-
-            # 5. 调试输出 (限流)
+            # 6. 调试输出 (限流)
             if time.time() - last_print_time > PRINT_INTERVAL:
                 last_print_time = time.time()
-                print(f"Pitch: {np.degrees(pitch):6.1f}°  ->  Lift: {np.degrees(target_lift):6.1f}° (Pan Locked)")
+                print(f"Pitch: {np.degrees(current_pitch):6.1f}°  ->  Lift: {np.degrees(target_lift):6.1f}° (累积, Pan Locked)")
 
         mujoco.mj_step(model, data)
 

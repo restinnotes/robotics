@@ -132,22 +132,33 @@ class ArmImuController:
         yaw, pitch, roll = 0, 0, 0 # Visualization values
 
         if orientation:
-            # --- Single Axis (Lift) Logic with Vector Projection ---
+            # --- Single Axis (Lift) Logic with Angle Unwrapping ---
 
-            # Calculate Pitch robustly (360 degrees)
-            pitch_rad = self._get_pitch_from_vector(orientation)
+            # Calculate current Pitch (arctan2, range ±π)
+            current_pitch = self._get_pitch_from_vector(orientation)
+
+            # Initialize state on first call
+            if not hasattr(self, '_last_pitch'):
+                self._last_pitch = current_pitch
+                # accumulated_lift already defined in __init__ as target_lift
+
+            # Angle Unwrapping
+            delta = current_pitch - self._last_pitch
+
+            # Detect boundary crossing at ±180°
+            if delta > np.pi:
+                delta -= 2 * np.pi
+            elif delta < -np.pi:
+                delta += 2 * np.pi
+
+            # Accumulate with scale
+            self.target_lift += delta * self.scale
+
+            # Update last pitch
+            self._last_pitch = current_pitch
 
             # Pan Locked to 0
             self.target_pan = 0.0
-
-            # Lift Mapped from Pitch
-            # Initial position -1.57 (vertical up) corresponds to Pitch 0 (arm horizontal)?
-            # Adjust mapping based on sensor_imu_control.py Logic:
-            # target_lift = -1.57 + pitch * args.scale
-            self.target_lift = -1.57 + pitch_rad * self.scale
-
-            # No clipping for full 360 range
-            # self.target_lift = np.clip(self.target_lift, -3.14, 0) # REMOVED
 
             # Apply to robot joints
             self.data.qpos[0] = self.target_pan
@@ -161,7 +172,7 @@ class ArmImuController:
 
             # UI Visualization
             yaw = 0.0 # Locked
-            pitch = pitch_rad
+            pitch = current_pitch
             roll = 0.0 # Ignored
 
             # 4. Record if enabled
