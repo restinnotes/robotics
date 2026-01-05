@@ -49,7 +49,8 @@ class BHy2CLIReceiver(IMUDataSource):
         exe_path: str = None,
         sensor_id: int = DEFAULT_SENSOR_ID,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
-        firmware_path: str = "release/BHI3-firmwares/BHI360/Bosch_Shuttle3_BHI360.fw"
+        firmware_path: str = "release/BHI3-firmwares/BHI360/Bosch_Shuttle3_BHI360.fw",
+        enable_drift_compensation: bool = True  # 默认启用，与 Windows 版本保持一致
     ):
         """
         Args:
@@ -57,10 +58,12 @@ class BHy2CLIReceiver(IMUDataSource):
             sensor_id: 传感器 ID (默认 37 = Game Rotation Vector)
             sample_rate: 采样率 Hz (默认 50)
             firmware_path: 固件文件路径 (用于自动修复固件丢失)
+            enable_drift_compensation: 是否启用自适应漂移补偿
         """
         self.sensor_id = sensor_id
         self.sample_rate = sample_rate
         self.firmware_path = firmware_path
+        self.enable_drift_compensation = enable_drift_compensation
 
         # 自动查找 exe 路径
         if exe_path is None:
@@ -284,7 +287,8 @@ class BHy2CLIReceiver(IMUDataSource):
                 self._data_count += 1
 
                 # 运行自适应漂移补偿
-                self._detect_stillness_and_compensate()
+                if self.enable_drift_compensation:
+                    self._detect_stillness_and_compensate()
             except Exception as e:
                 print(f"四元数解析错误: {e}")
 

@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--rate", "-r", type=int, default=50, help="采样率 Hz")
     parser.add_argument("--scale", type=float, default=1.5, help="旋转灵敏度")
     parser.add_argument("--no-viewer", action="store_true", help="无图形界面模式（适用于无显示环境）")
+    parser.add_argument("--no-drift-compensation", action="store_true", help="禁用 Python 层面的自适应漂移补偿")
     args = parser.parse_args()
 
     # 加载模型（使用相对路径，与可工作的 check_imu 保持一致）
@@ -57,10 +58,27 @@ def main():
     model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
 
+    # 提示保持静止，确保 FOC 校准准确
+    print("\n" + "="*60)
+    print("【重要提示】")
+    print("即将在启动时执行陀螺仪 FOC 校准 (foc 3)。")
+    print("请务必将传感器保持在**绝对静止**状态！")
+    print("="*60)
+    input("准备好后按 Enter 键继续...")
+
     # 启动传感器接收器 (ID 37)
     print(f"正在连接传感器 (ID 37, Rate {args.rate})...")
     # 注意：这里使用 BHy2CLIReceiver 而不是 BHy2CLIAccelReceiver
-    receiver = BHy2CLIReceiver(sensor_id=37, sample_rate=args.rate)
+    receiver = BHy2CLIReceiver(
+        sensor_id=37,
+        sample_rate=args.rate,
+        enable_drift_compensation=not args.no_drift_compensation  # 允许禁用
+    )
+
+    if not args.no_drift_compensation:
+        print("已启用自适应漂移补偿 (软件层)")
+    else:
+        print("已禁用自适应漂移补偿 (软件层)")
 
     if not receiver.connect(perform_gyro_foc=True):
         print("连接失败!")
