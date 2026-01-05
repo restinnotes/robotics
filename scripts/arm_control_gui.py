@@ -2,6 +2,15 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import os
 import sys
+import platform
+
+# --- Linux OpenGL/GLX Fix ---
+if platform.system() == "Linux":
+    lib_path = "/usr/lib/x86_64-linux-gnu/libstdc++.so.6"
+    if os.path.exists(lib_path):
+        os.environ["LD_PRELOAD"] = lib_path
+# ----------------------------
+
 import glob
 import numpy as np
 

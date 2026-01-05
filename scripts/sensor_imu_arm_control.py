@@ -11,6 +11,15 @@ import mujoco
 import mujoco.viewer
 import sys
 import os
+import platform
+
+# --- Linux OpenGL/GLX Fix ---
+if platform.system() == "Linux":
+    lib_path = "/usr/lib/x86_64-linux-gnu/libstdc++.so.6"
+    if os.path.exists(lib_path):
+        os.environ["LD_PRELOAD"] = lib_path
+# ----------------------------
+
 from scipy.spatial.transform import Rotation as R
 
 # Ensure project root is in path
