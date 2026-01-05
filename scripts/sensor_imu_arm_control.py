@@ -108,13 +108,15 @@ class ArmImuController:
     def _get_pitch_from_vector(self, orientation: R) -> float:
         """
         Calculates pitch using vector projection to avoid gimbal lock.
-        Same logic as in sensor_imu_control.py.
+        Uses arctan2 to support full 360-degree rotation.
         """
         ref_vector = np.array([1.0, 0.0, 0.0])
         rotated_vector = orientation.apply(ref_vector)
+        v_x = rotated_vector[0]
         v_z = rotated_vector[2]
-        v_z = np.clip(v_z, -1.0, 1.0)
-        pitch = np.arcsin(v_z)
+
+        # arctan2(y, x) -> here we use (z, x) for pitch in the vertical plane
+        pitch = np.arctan2(v_z, v_x)
         return pitch
 
     def step(self):
@@ -132,7 +134,7 @@ class ArmImuController:
         if orientation:
             # --- Single Axis (Lift) Logic with Vector Projection ---
 
-            # Calculate Pitch robustly
+            # Calculate Pitch robustly (360 degrees)
             pitch_rad = self._get_pitch_from_vector(orientation)
 
             # Pan Locked to 0
@@ -144,8 +146,8 @@ class ArmImuController:
             # target_lift = -1.57 + pitch * args.scale
             self.target_lift = -1.57 + pitch_rad * self.scale
 
-            # Apply bounds
-            self.target_lift = np.clip(self.target_lift, -3.14, 0)
+            # No clipping for full 360 range
+            # self.target_lift = np.clip(self.target_lift, -3.14, 0) # REMOVED
 
             # Apply to robot joints
             self.data.qpos[0] = self.target_pan

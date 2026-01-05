@@ -37,30 +37,29 @@ def get_pitch_from_vector(orientation: R) -> float:
     原理:
     1. 假设传感器初始指向 X 轴正方向 [1, 0, 0]。
     2. 用当前的四元数旋转这个向量。
-    3. 旋转后的向量的 Z 分量 (v_z) 就是其在垂直方向的投影。
-    4. Pitch = arcsin(v_z)。
+    3. 获取旋转后向量的 X 分量和 Z 分量。
+    4. Pitch = arctan2(z, x)。
 
     优点:
-    - 无论传感器怎么绕 Z 轴 (Yaw) 旋转，只要它与地面的夹角不变，Pitch 就不变。
-    - 没有万向节死锁 (Gimbal Lock)。
-    - 没有 ±180 度跳变问题。
+    - 支持全 360 度旋转 (-180 到 +180)。
+    - 没有万向节死锁。
     """
-    # 1. 定义初始指向向量 (假设传感器 X 轴朝前)
-    #    如果你觉得传感器侧着拿舒服，可以改为 [0, 1, 0]
+    # 1. 定义初始指向向量
     ref_vector = np.array([1.0, 0.0, 0.0])
 
     # 2. 应用旋转
-    #    scipy 的 apply 方法可以直接旋转向量
     rotated_vector = orientation.apply(ref_vector)
 
-    # 3. 提取 Z 分量 (垂直分量)
+    # 3. 提取 X, Z 分量
+    v_x = rotated_vector[0]
     v_z = rotated_vector[2]
 
-    # 4. 限制范围以防数值误差导致 arcsin 报错
-    v_z = np.clip(v_z, -1.0, 1.0)
-
-    # 5. 计算俯仰角 (弧度)
-    pitch = np.arcsin(v_z)
+    # 4. 计算俯仰角 (-pi 到 +pi)
+    # 当手臂指向正前时 (x=1, z=0), pitch=0。
+    # 当手臂向上指时 (x=0, z=1), pitch=90。
+    # 当手臂向后指时 (x=-1, z=0), pitch=180/-180。
+    # 当手臂向下指时 (x=0, z=-1), pitch=-90。
+    pitch = np.arctan2(v_z, v_x)
 
     return pitch
 
@@ -93,9 +92,9 @@ def main():
     data = mujoco.MjData(model)
 
     print("\n" + "="*60)
-    print("【模式：单轴 Lift 控制】")
+    print("【模式：单轴 Lift 控制 (360° 全范围)】")
     print("  - Pan (水平): 锁定")
-    print("  - Lift (俯仰): 跟随手臂 (向量算法，无死区)")
+    print("  - Lift (俯仰): 跟随手臂 (360° 向量映射)")
     print("="*60)
     print("【重要提示】启动时请保持传感器静止以进行 FOC 校准！")
     print("="*60)
@@ -134,27 +133,28 @@ def main():
         orientation = receiver.get_orientation()
 
         if orientation:
-            # 2. 计算 Pitch (使用向量投影法)
+            # 2. 计算 Pitch (使用 arctan2 向量投影，范围 ±180)
             pitch = get_pitch_from_vector(orientation)
 
             # 3. 映射到机械臂
             # Pan 轴锁定为 0
             target_pan = 0.0
 
-            # Lift 轴: 初始 -1.57 (-90度, 上竖) + Pitch
-            # 此时如果手臂平举 (Pitch=0)，机械臂也是竖直的 (-90)
-            # 如果你希望 Pitch=0 时机械臂水平，你需要调整这里的 offset
+            # Lift 轴: 初始 -1.57 (竖直向上/向后) + Pitch
             # 假设:
-            # - 用户平举 (Pitch=0) -> 机械臂水平 (Lift = -1.57 + 1.57 = 0) ?
-            # - 现在的代码是: -1.57 + pitch。
-            #   如果 pitch=0, lift=-1.57 (竖直向上/向后, 取决于安装)
-            #   ur3e 默认: -1.57 是竖直向上。
+            # - 用户平举 (Pitch=0) -> 机械臂水平? (需要根据实际感受调整 offset)
+            # - ur3e 'ur3e_vertical.xml': 0 是平躺? -1.57 是竖起?
+            #
+            # 假设: 用户平举(Pitch=0)时, 我们希望机械臂Lift关节是 -1.57(竖直) 还是 0(水平)?
+            # 通常 -1.57 是向上。
             target_lift = -1.57 + pitch * args.scale
 
             # 4. 应用控制
             data.qpos[0] = target_pan
-            # 限制范围 [-180, 0] 防止打到自己
-            data.qpos[1] = np.clip(target_lift, -3.14, 0)
+
+            # 取消 Lift 轴的硬限制 (允许 ±360 旋转)
+            # data.qpos[1] = np.clip(target_lift, -3.14, 0) # OLD: clipped
+            data.qpos[1] = target_lift # NEW: full range
 
             # 5. 调试输出 (限流)
             if time.time() - last_print_time > PRINT_INTERVAL:
