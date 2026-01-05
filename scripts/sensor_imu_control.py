@@ -128,13 +128,20 @@ def main():
     # ============================================
     # 角度展开状态变量 (Angle Unwrapping)
     # ============================================
-    # 用于实现平滑连续旋转，避免±180°跳变
     last_pitch = None  # 上一帧的 pitch 角度
     accumulated_lift = -1.57  # 累积的 lift 角度 (从初始位置开始)
 
+    # ============================================
+    # 速率限制 (Rate Limiting)
+    # ============================================
+    # 防止过快旋转导致物理仿真爆炸
+    MAX_DELTA_PER_FRAME = np.radians(30)  # 每帧最大 30 度变化
+    frame_count = 0
+    last_delta = 0  # 用于调试
+
     # 定义控制循环逻辑
     def control_loop_step():
-        nonlocal last_print_time, last_pitch, accumulated_lift
+        nonlocal last_print_time, last_pitch, accumulated_lift, frame_count, last_delta
 
         # 1. 获取姿态
         orientation = receiver.get_orientation()
@@ -142,6 +149,12 @@ def main():
         if orientation:
             # 2. 计算当前 Pitch (arctan2, 范围 ±π)
             current_pitch = get_pitch_from_vector(orientation)
+
+            # NaN/Inf 检查
+            if not np.isfinite(current_pitch):
+                print(f"[WARN] Invalid pitch detected: {current_pitch}, skipping frame")
+                mujoco.mj_step(model, data)
+                return
 
             # 3. 角度展开 (Unwrap)
             if last_pitch is not None:
@@ -154,6 +167,12 @@ def main():
                 elif delta < -np.pi:
                     delta += 2 * np.pi
 
+                # ====== 速率限制 (Clamp) ======
+                # 防止单帧变化过大导致仿真爆炸
+                original_delta = delta
+                delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
+                last_delta = original_delta  # 保存原始值用于调试
+
                 # 累加 (带灵敏度系数)
                 accumulated_lift += delta * args.scale
 
@@ -161,20 +180,27 @@ def main():
             last_pitch = current_pitch
 
             # 4. 映射到机械臂
-            # Pan 轴锁定为 0
             target_pan = 0.0
-
-            # Lift 轴: 使用累积角度
             target_lift = accumulated_lift
+
+            # 最终 NaN 检查
+            if not np.isfinite(target_lift):
+                print(f"[WARN] Invalid target_lift: {target_lift}, resetting to -1.57")
+                target_lift = -1.57
+                accumulated_lift = -1.57
 
             # 5. 应用控制
             data.qpos[0] = target_pan
             data.qpos[1] = target_lift
 
+            frame_count += 1
+
             # 6. 调试输出 (限流)
             if time.time() - last_print_time > PRINT_INTERVAL:
                 last_print_time = time.time()
-                print(f"Pitch: {np.degrees(current_pitch):6.1f}°  ->  Lift: {np.degrees(target_lift):6.1f}° (累积, Pan Locked)")
+                delta_deg = np.degrees(last_delta)
+                clipped = " [CLIPPED]" if abs(last_delta) > MAX_DELTA_PER_FRAME * 0.99 else ""
+                print(f"Pitch: {np.degrees(current_pitch):6.1f}° | Delta: {delta_deg:5.1f}°{clipped} | Lift: {np.degrees(target_lift):6.1f}°")
 
         mujoco.mj_step(model, data)
 

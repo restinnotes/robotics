@@ -127,6 +127,9 @@ class ArmImuController:
         if not self.receiver:
             return None
 
+        # Rate limiting constant
+        MAX_DELTA_PER_FRAME = np.radians(30)  # 30 degrees max per frame
+
         # 1. Get Orientation
         orientation = self.receiver.get_orientation()
         yaw, pitch, roll = 0, 0, 0 # Visualization values
@@ -137,10 +140,13 @@ class ArmImuController:
             # Calculate current Pitch (arctan2, range ±π)
             current_pitch = self._get_pitch_from_vector(orientation)
 
+            # NaN/Inf check
+            if not np.isfinite(current_pitch):
+                return None
+
             # Initialize state on first call
             if not hasattr(self, '_last_pitch'):
                 self._last_pitch = current_pitch
-                # accumulated_lift already defined in __init__ as target_lift
 
             # Angle Unwrapping
             delta = current_pitch - self._last_pitch
@@ -151,6 +157,9 @@ class ArmImuController:
             elif delta < -np.pi:
                 delta += 2 * np.pi
 
+            # Rate limiting (clamp)
+            delta = np.clip(delta, -MAX_DELTA_PER_FRAME, MAX_DELTA_PER_FRAME)
+
             # Accumulate with scale
             self.target_lift += delta * self.scale
 
@@ -159,6 +168,10 @@ class ArmImuController:
 
             # Pan Locked to 0
             self.target_pan = 0.0
+
+            # Final NaN check
+            if not np.isfinite(self.target_lift):
+                self.target_lift = -1.57
 
             # Apply to robot joints
             self.data.qpos[0] = self.target_pan
