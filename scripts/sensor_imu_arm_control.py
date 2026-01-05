@@ -202,7 +202,7 @@ class ArmImuController:
 
             # --- Numerical Stability Protection ---
             # 1. Clamp target values to prevent unbounded growth
-            MAX_ANGLE = 6.28  # ~360 degrees
+            MAX_ANGLE = 62.8  # ~10 rotations (relaxed)
             self._target_pan = np.clip(self._target_pan, -MAX_ANGLE, MAX_ANGLE)
             self._target_lift = np.clip(self._target_lift, -MAX_ANGLE, MAX_ANGLE)
 
@@ -227,7 +227,7 @@ class ArmImuController:
             self.data.qpos[5] = 0.0
 
             # Reset velocities to prevent accumulated momentum
-            self.data.qvel[:] = 0.0
+            # self.data.qvel[:] = 0.0  # Removed to restore responsiveness
 
             # For UI display
             yaw = chosen_p
