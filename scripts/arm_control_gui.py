@@ -143,6 +143,12 @@ class ArmControlApp:
                 rel = f
             self.listbox.insert(tk.END, rel)
 
+    def update_scale(self, event=None):
+        val = self.scale_var.get()
+        self.lbl_scale_val.config(text=f"{val:.1f}x")
+        if self.controller:
+            self.controller.scale = val
+
     # --- Actions: Control ---
     def cmd_connect(self):
         if self.controller:

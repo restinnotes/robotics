@@ -109,20 +109,98 @@ class ArmImuController:
         yaw, pitch, roll = 0, 0, 0
 
         if orientation:
-            euler = orientation.as_euler('zyx', degrees=False)
-            yaw, pitch, roll = euler
+            # 使用矢量投影法代替欧拉角，解决 Gimbal Lock 和翻转问题
 
-            # 2. Map to Joints
-            # Yaw -> Shoulder Pan (Joint 0)
-            self.target_pan = yaw * self.scale
+            # 1. 获取传感器前向矢量 (假设 X 轴为指向)
+            v = orientation.apply([1, 0, 0])
 
-            # Pitch -> Shoulder Lift (Joint 1)
-            # Base is -1.57 (-90 deg), add pitch
-            self.target_lift = -1.57 + pitch * self.scale
+            # 2. 计算球坐标候选解
+            # 候选解 1: 标准解，Lift 在 [-90, 90]
+            # Pan = atan2(y, x), Lift = asin(z)
+            p1 = np.arctan2(v[1], v[0])
+            l1 = np.arcsin(np.clip(v[2], -1.0, 1.0))
+
+            # 候选解 2: "翻转"解，Lift 在 [90, 270] (或 [-270, -90])
+            # 对应于 Pitch 越过 90 度的情况
+            p2 = p1 + np.pi
+            l2 = np.pi - l1
+
+            # 初始化状态
+            if not hasattr(self, '_last_raw_pan'):
+                self._last_raw_pan = p1
+                self._last_raw_lift = l1
+                self._accum_pan = 0.0
+                self._accum_lift = -1.57 # 初始 Lift Down
+
+            # 3. 连续性解算 (Unwrap & Candidate Selection)
+            # 对两个候选 Pan 进行解绕，使其接近上一帧
+            p1_u = np.unwrap([self._last_raw_pan, p1])[1]
+            p2_u = np.unwrap([self._last_raw_pan, p2])[1]
+
+            # 计算主要候选项与上一帧的距离 (欧氏距离)
+            dist1 = (p1_u - self._last_raw_pan)**2 + (l1 - self._last_raw_lift)**2
+            dist2 = (p2_u - self._last_raw_pan)**2 + (l2 - self._last_raw_lift)**2
+
+            # 选择距离最小的解，保证运动平滑连续
+            if dist1 < dist2:
+                chosen_p = p1_u
+                chosen_l = l1
+            else:
+                chosen_p = p2_u
+                chosen_l = l2
+
+            # 4. 计算增量并应用灵敏度
+            delta_pan = chosen_p - self._last_raw_pan
+            delta_lift = chosen_l - self._last_raw_lift
+
+            self._last_raw_pan = chosen_p
+            self._last_raw_lift = chosen_l
+
+            # 累积控制量
+            # 初始状态下的 _accum_pan 对应 Robot 0 (Forward)
+            # 初始状态下的 _accum_lift 对应 Robot -1.57 (Down)
+            # 如果一开始 sensor 是 Forward (l=0), delta=0.
+            # 此时 target_lift 应该是 -1.57 + 0? 否。
+            # 如果 sensor 是 Forward，Robot 应该是 Horizontal (0)。
+            # 我们逻辑：Sensor Forward (Identity) -> v=[1,0,0] -> p=0, l=0.
+            # 此时我们希望 Robot Horizontal。
+            # 所以 _accum_lift 初始值设为 0 比较好？
+            # 不，_accum_lift 代表 "目标角度"。
+            # 我们的逻辑：Align Sensor Frame with Robot Frame.
+            # Sensor Forward = Robot Forward (Horizontal).
+            # Sensor Down = Robot Down (-1.57).
+            # 所以 _accum_lift 初始应该跟随 Sensor 的初始状态相对值。
+
+            # 修正：我们不仅需要积攒 Delta，还需要一个 Base Offset。
+            # 简化方案：直接使用 Scale 后的 Delta 累加
+            if not hasattr(self, '_target_pan'):
+                self._target_pan = 0.0
+                # 如果初始 Sensor 是 Down (l=-1.57)，我们希望 Robot 是 Down (-1.57)
+                # 如果初始 Sensor 是 Forward (l=0)，我们希望 Robot 是 Forward (0)
+                # 所以 Offset = 0
+                self._target_lift = chosen_l # 初始直接同步绝对值
+
+                # 特殊处理：如果是 Down 启动，ensure it matches
+                # 我们的 chosen_l 是绝对角度。
+                # 如果用户希望 scale > 1，则绝对角度会放大。
+                # 我们采用 "绝对跟随 + 增量放大" 混合？
+                # 不，标准做法是：初始绝对对齐，之后只认增量。
+                self._target_pan = chosen_p
+                self._target_lift = chosen_l
+            else:
+                self._target_pan += delta_pan * self.scale
+                self._target_lift += delta_lift * self.scale
+
+            self.target_pan = self._target_pan
+            self.target_lift = self._target_lift
 
             # 3. Apply Control
             self.data.qpos[0] = self.target_pan
             self.data.qpos[1] = self.target_lift  # 移除限制，允许全球面运动
+
+            # 用于 UI 显示
+            yaw = chosen_p
+            pitch = chosen_l
 
             # 4. Record if enabled
             if self.recorder and self.recorder.is_recording:
