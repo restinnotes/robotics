@@ -34,9 +34,9 @@
 - **校准随机化**: 支持 ±30° 传感器佩戴偏差随机化训练，模拟真实佩戴不准的情况。
 - **对比验证**: 建立竞技场，直观对比数学解算器与 RL 策略在恶劣传感器数据下的表现。
 
-### Phase 4: 手机遥操作与产品化 (New)
-- **单手机驱动**: 支持使用手机 IMU (phyphox / Sensor Logger) 实时驱动机械臂仿真。
-- **动作回放与触发**: 支持动作录制与回放，用于触发下游算法 (如计步、抬腕检测)。
+### Phase 4: 传感器集成与可视化控制台 (Current Focus)
+- **BHI360 传感器集成**: 已从手机模拟过渡到真实的 Bosch BHI360 传感器硬件，支持高频低延迟的姿态捕获。
+- **GUI 可视化控制台**: 开发了统一的 `arm_control_gui.py` 控制面板，集成蓝牙/USB连接管理、波形示波器、校准工具于一体。这是当前核心的交互入口。
 
 ---
 
@@ -87,9 +87,19 @@ python scripts/trajectory_analysis.py --n_episodes 10 --calib_deg 30
 
 ---
 
-## 📱 统一遥操作入口 (Unified Control)
+## 🖥️ 可视化控制台 (GUI Entry Point)
 
-**新版控制脚本** `scripts/robot_control.py` 支持 WiFi 和 BLE 两种模式，且均可连接仿真或真机。
+**这是当前推荐的启动方式**。GUI 整合了设备扫描、连接、数据波形显示和仿真/真机切换功能。
+
+```bash
+python scripts/arm_control_gui.py
+```
+
+---
+
+## 💻 命令行控制 (Legacy/Headless)
+
+如果不使用 GUI，也可以通过命令行直接启动：
 
 ### 1. WiFi 模式 (推荐 Phone -> Sim)
 主要用于使用手机 APP (Phyphox) 控制 **仿真环境 (Simulation)**。手机模拟器方便前期调试算法。
