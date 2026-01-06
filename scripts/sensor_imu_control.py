@@ -179,6 +179,15 @@ def main():
                 # 累加 (带灵敏度系数)
                 accumulated_lift += delta * args.scale
 
+                # ====== 绝对角度限制 (Safety Clamp) ======
+                # 虽然我们支持 360 度旋转，但物理引擎对于过大的关节角度 (如 1000度) 会不稳定
+                # 我们限制在 [-4π, 4π] (约 ±720度, 2圈) 范围内
+                # 如果超过，我们减去 2π 的整数倍使其回到范围内，保持角度相位不变
+                if accumulated_lift > 4 * np.pi:
+                    accumulated_lift -= 2 * np.pi * (accumulated_lift // (2 * np.pi))
+                elif accumulated_lift < -4 * np.pi:
+                    accumulated_lift += 2 * np.pi * (abs(accumulated_lift) // (2 * np.pi))
+
             # 更新上一帧角度
             last_pitch = current_pitch
 

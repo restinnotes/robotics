@@ -4,6 +4,25 @@
 
 ## 🚀 项目阶段
 
+## 📥 安装 (Installation)
+
+1. 克隆仓库:
+   ```bash
+   git clone https://github.com/restinnotes/robotics.git
+   cd robotics
+   ```
+
+2. 安装依赖:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. (可选) Linux用户:
+   运行 setup 脚本配置 udev 权限:
+   ```bash
+   bash scripts/setup_linux.sh
+   ```
+
 ### Phase 1 & 2: 基础模仿与 IMU 解算器 (Completed)
 - 提取人类走路摆臂轨迹并映射至 UR3e。
 - 实现 `IMUSolver`：只需初始校准，即可将双 IMU 四元数实时转化为关节角度。
@@ -25,25 +44,23 @@
 
 ```
 robotics/
-├── ur3e_blind_env.py          # Phase 3 核心环境 (支持校准随机化)
-├── train_blind.py             # Phase 3 RL 训练脚本
-├── ur3e_imitation_env.py      # Phase 1 基础模仿环境
-├── train_imitation.py         # Phase 1 训练脚本
-├── simple_jax_ppo.py          # JAX PPO 算法实现
 ├── scripts/
-│   ├── phone_control_phyphox.py # 📱 手机遥操作 (推荐, 使用 phyphox)
-│   ├── phone_imu_control.py     # 📱 手机遥操作 (支持 Sensor Logger)
-│   ├── trajectory_analysis.py   # 📊 轨迹误差百分位分析
-│   ├── plane_convergence_analysis.py # 📉 运动平面回归分析
-│   ├── eval_multi_angle.py      # 🎥 多角度自动切换评估
-│   ├── verify_calib_random.py   # 🔄 校准随机化稳定性验证
+│   ├── basic_control/           # 早期基础控制演示
+│   ├── training/                # RL 训练脚本 (train_blind.py 等)
+│   ├── tests/                   # 单元测试与调试脚本
+│   ├── utils/                   # 工具类脚本 (分析、绘图等)
 │   ├── verification/            # 验证脚本 (对比竞技场, 轨迹播放器等)
-│   └── basic_control/           # 早期基础控制演示
-├── media/                     # 验证视频与对比录影
-├── models/                    # 训练好的模型权重
-├── utils/                     # 噪声注入、IMU 解算器、噪声管道
-├── assets/                    # UR3e MuJoCo 模型 (含竖直安装版本)
-└── data/                      # 轨迹数据集 (.npz)
+│   ├── archive/                 # 归档的旧脚本
+│   ├── setup_linux.sh           # Linux 环境安装脚本
+│   ├── sensor_imu_control.py    # 核心：IMU 姿态解算与控制
+│   └── arm_control_gui.py       # 核心：GUI 控制界面
+├── ur3e_blind_env.py          # Phase 3 核心环境
+├── ur3e_imitation_env.py      # Phase 1 基础模仿环境
+├── utils/                     # 核心工具库 (IMU解算器、噪声模型等)
+├── assets/                    # UR3e MuJoCo 模型
+├── data/                      # 轨迹数据集
+├── docs/                      # 文档
+└── requirements.txt           # 项目依赖
 ```
 
 ---
@@ -74,28 +91,21 @@ python scripts/trajectory_analysis.py --n_episodes 10 --calib_deg 30
 
 **新版控制脚本** `scripts/robot_control.py` 支持 WiFi 和 BLE 两种模式，且均可连接仿真或真机。
 
-### 1. WiFi 模式 (推荐 Phone)
-配合 **phyphox** App 使用 (需开启 "斜面" -> "允许远程访问")：
+### 1. WiFi 模式 (推荐 Phone -> Sim)
+主要用于使用手机 APP (Phyphox) 控制 **仿真环境 (Simulation)**。手机模拟器方便前期调试算法。
 ```bash
 # 控制仿真
 python scripts/robot_control.py --source wifi --url http://192.168.1.31:8080 --target sim
-
-# 控制真机 (需配置 IP)
-python scripts/robot_control.py --source wifi --url http://192.168.1.31:8080 --target real --robot_ip 192.168.1.100
 ```
 
-### 2. BLE 模式 (推荐 BHI3xx 板子)
-配合 Bosch BHI360/260 传感器板子使用：
-
-Step 1: 扫描设备地址
+### 2. BLE 模式 (推荐 BHI3xx Sensor -> Real)
+主要用于使用真实的 **Bosch BHI360/260 传感器** 控制 **真机 (Real Robot)** 或高精度仿真。
 ```bash
-python scripts/ble_scan.py
-# 记下板子的地址，例如 AA:BB:CC:DD:EE:FF
-```
+# 扫描设备
+python scripts/archive/ble_scan.py
 
-Step 2: 启动控制
-```bash
-python scripts/robot_control.py --source ble --address AA:BB:CC:DD:EE:FF --target sim
+# 启动控制 (连接真机)
+python scripts/robot_control.py --source ble --address AA:BB:CC:DD:EE:FF --target real --robot_ip 192.168.1.100
 ```
 
 ---
